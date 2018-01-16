@@ -14,9 +14,12 @@
 
 // You should have received a copy of the GNU General Public License
 // along with Chip-8.  If not, see <http://www.gnu.org/licenses/>.
+
 //! Chip-8 instruction translation.
 
 use std::fmt;
+use std::ops::Add;
+use std::ops::Deref;
 
 use failure::Error;
 use num::FromPrimitive;
@@ -24,12 +27,14 @@ use num::FromPrimitive;
 use MEM_SIZE;
 use Register;
 
-/// An error resulting from an address.
+/// An error resulting from an out-of-bounds address.
 #[derive(Debug, Fail, PartialEq, Eq)]
-pub enum AddressError {
-    #[fail(display = "address out of bounds: {:#04X}", _0)] OutOfBounds(u16),
-    #[fail(display = "misaligned address: {:#04X}", _0)] Misaligned(u16),
-}
+#[fail(display = "address out of bounds: {:#04X}", _0)]
+pub struct AddressOutOfBoundsError(pub usize);
+/// An error resulting from a misaligned address.
+#[derive(Debug, Fail, PartialEq, Eq)]
+#[fail(display = "misaligned address: {:#04X}", _0)]
+pub struct AddressMisalignedError(pub usize);
 
 /// An error resulting from an instruction.
 #[derive(Debug, Fail, PartialEq, Eq)]
@@ -73,7 +78,7 @@ impl Opcode {
     /// Returns the `addr` corresponding to this opcode.
     ///
     /// This does not guarantee that the result is actually meaningful.
-    fn addr(&self) -> Result<Address, AddressError> {
+    fn addr(&self) -> Result<Address, AddressOutOfBoundsError> {
         Address::from_u16(self.0 & 0xFFF)
     }
 }
@@ -86,29 +91,76 @@ impl fmt::Display for Opcode {
 
 /// An address pointing to a Chip-8 memory location.
 ///
-/// All addresses must be within the addressable range of the Chip-8 and
-/// aligned on a 2-byte boundary.  This condition is guaranteed to be satisfied
-/// for any instance of this type.
+/// All addresses must be within the addressable range, and some addresses (but
+/// not all) must be aligned on a 2-byte boundary.  The former condition is
+/// guaranteed to be satisfied for any instance of this type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Address(u16);
+pub struct Address(usize);
 
 impl Address {
     /// Verifies whether the given `u16` address value is valid, returning the
     /// corresponding `Address` if it is.
-    pub fn from_u16(addr: u16) -> Result<Address, AddressError> {
-        if addr >= MEM_SIZE as u16 {
-            Err(AddressError::OutOfBounds(addr))
-        } else if addr & 1 != 0 {
-            Err(AddressError::Misaligned(addr))
+    pub fn from_u16(addr: u16) -> Result<Self, AddressOutOfBoundsError> {
+        Address::from_usize(addr as usize)
+    }
+
+    /// Verifies whether the given `usize` address is valid, returning the
+    /// corresponding `Address` if it is.
+    pub fn from_usize(addr: usize) -> Result<Self, AddressOutOfBoundsError> {
+        if addr >= MEM_SIZE {
+            Err(AddressOutOfBoundsError(addr))
         } else {
             Ok(Address(addr))
         }
+    }
+
+    /// Returns the value of the address.
+    pub fn addr(&self) -> usize {
+        self.0
+    }
+
+    /// Returns the corresponding `AlignedAddress` if the address is aligned,
+    /// and an error if not.
+    pub fn aligned(&self) -> Result<AlignedAddress, AddressMisalignedError> {
+        if self.0 & 1 == 0 {
+            Ok(AlignedAddress(*self))
+        } else {
+            Err(AddressMisalignedError(self.0))
+        }
+    }
+}
+
+impl Add<usize> for Address {
+    type Output = Result<Self, AddressOutOfBoundsError>;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Address::from_usize(self.0 + rhs)
     }
 }
 
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:#03X}", self.0)
+    }
+}
+
+/// A Chip-8 address which is guaranteed to be aligned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AlignedAddress(Address);
+
+impl Add<usize> for AlignedAddress {
+    type Output = Result<Self, Error>;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Ok((self.0 + rhs)?.aligned()?)
+    }
+}
+
+impl Deref for AlignedAddress {
+    type Target = Address;
+
+    fn deref(&self) -> &Address {
+        &self.0
     }
 }
 
@@ -134,9 +186,9 @@ pub enum Instruction {
     /// `HIGH` (`00FF`).
     High,
     /// `JP addr` (`1nnn`).
-    Jp(Address),
+    Jp(AlignedAddress),
     /// `CALL addr` (`2nnn`).
-    Call(Address),
+    Call(AlignedAddress),
     /// `SE Vx, byte` (`3xkk`).
     SeByte(Register, u8),
     /// `SNE Vx, byte` (`4xkk`).
@@ -216,7 +268,7 @@ impl Instruction {
     /// quirks mode should be used in the translation.  If it is `false` and a
     /// quirky shift instruction is encountered, the instruction will be
     /// rejected.
-    pub fn from_opcode(opcode: Opcode, shift_quirks: bool) -> Result<Instruction, Error> {
+    pub fn from_opcode(opcode: Opcode, shift_quirks: bool) -> Result<Self, Error> {
         use self::Instruction::*;
 
         Ok(match (opcode.0 & 0xF000) >> 12 {
@@ -234,8 +286,8 @@ impl Instruction {
                     _ => Err(InstructionError::InvalidOpcode(opcode))?,
                 }
             },
-            0x1 => Jp(opcode.addr()?),
-            0x2 => Call(opcode.addr()?),
+            0x1 => Jp(opcode.addr()?.aligned()?),
+            0x2 => Call(opcode.addr()?.aligned()?),
             0x3 => SeByte(opcode.vx(), opcode.byte()),
             0x4 => SneByte(opcode.vx(), opcode.byte()),
             0x5 => if opcode.0 & 0xF == 0 {

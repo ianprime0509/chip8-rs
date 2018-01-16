@@ -14,6 +14,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with Chip-8.  If not, see <http://www.gnu.org/licenses/>.
+
 //! Main module stuff.
 
 #[macro_use]
@@ -21,10 +22,13 @@ extern crate enum_primitive;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
+#[macro_use]
+extern crate log;
 #[cfg(test)]
 #[macro_use]
 extern crate maplit;
 extern crate num;
+extern crate rand;
 
 /// The size of the Chip-8's memory, in bytes.
 pub const MEM_SIZE: usize = 0x1000;
@@ -33,7 +37,11 @@ pub const PROG_START: usize = 0x200;
 /// The maximum size of a Chip-8 program, in bytes.
 pub const PROG_SIZE: usize = MEM_SIZE - PROG_START;
 
+pub mod display;
+pub mod input;
 pub mod instruction;
+pub mod interpreter;
+mod timer;
 
 enum_from_primitive! {
 /// A Chip-8 register.
