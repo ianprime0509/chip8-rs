@@ -21,6 +21,7 @@ extern crate enum_primitive;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
+#[cfg(test)]
 #[macro_use]
 extern crate maplit;
 extern crate num;
