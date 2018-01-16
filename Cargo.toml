@@ -1,0 +1,11 @@
+[package]
+name = "chip8"
+version = "0.1.0"
+authors = ["Ian Johnson <ianprime0509@gmail.com>"]
+
+[dependencies]
+failure = "0.1.1"
+failure_derive = "0.1.1"
+enum_primitive = "0.1.1"
+num = "0.1.41"
+maplit = "1.0.1"
