@@ -205,6 +205,11 @@ impl Interpreter {
         self.regs[reg as usize].0 = val
     }
 
+    /// Returns the value of the program counter.
+    pub fn pc(&self) -> AlignedAddress {
+        self.pc
+    }
+
     /// Returns the instruction at the program counter.
     pub fn current_instruction(&self) -> Result<Instruction, Error> {
         Instruction::from_opcode(self.current_opcode(), self.shift_quirks)

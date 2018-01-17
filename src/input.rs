@@ -43,7 +43,7 @@ pub enum Key {
     KC,
     KD,
     KE,
-    KF
+    KF,
 }
 }
 
@@ -68,7 +68,7 @@ impl State {
         State::default()
     }
 
-    /// Returns the lowest key that is pressed, and unpresses the key.
+    /// Returns the lowest key that is pressed, and releases the key.
     pub fn get_pressed(&mut self) -> Option<Key> {
         for (i, key) in self.keys.iter_mut().enumerate() {
             if *key {
@@ -82,5 +82,15 @@ impl State {
     /// Returns whether the given key is pressed.
     pub fn is_pressed(&self, key: Key) -> bool {
         self.keys[key as usize]
+    }
+
+    /// Presses the given key.
+    pub fn press(&mut self, key: Key) {
+        self.keys[key as usize] = true;
+    }
+
+    /// Releases the given key.
+    pub fn release(&mut self, key: Key) {
+        self.keys[key as usize] = false;
     }
 }

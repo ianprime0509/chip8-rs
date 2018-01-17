@@ -106,6 +106,47 @@ mod tests {
         }
     }
 
+    /// Tests the `AND`, `OR` and `XOR` operations.
+    #[test]
+    fn instruction_bitwise() {
+        use Register::*;
+
+        // Test cases, in the format (Vx, Vy, b1, b2).
+        let cases = [
+            (V7, V2, 0x75, 0xF2),
+            (V3, V8, 0x01, 0xFF),
+            (VA, VE, 0x6A, 0x32),
+            (VF, VC, 0x78, 0xFD),
+            (V0, V1, 0xF0, 0x0F),
+        ];
+        let mut interpreter = Interpreter::with_options(Options::testing());
+
+        for &(vx, vy, b1, b2) in cases.into_iter() {
+            let case = (vx, vy, b1, b2);
+            let or = b1 | b2;
+            let and = b1 & b2;
+            let xor = b1 ^ b2;
+
+            // Test `OR`.
+            interpreter.set_register(vx, b1);
+            interpreter.set_register(vy, b2);
+            interpreter.execute(Instruction::Or(vx, vy)).unwrap();
+            assert_eq!(interpreter.register(vx), or, "case {:?}", case);
+
+            // Test `AND`.
+            interpreter.set_register(vx, b1);
+            interpreter.set_register(vy, b2);
+            interpreter.execute(Instruction::And(vx, vy)).unwrap();
+            assert_eq!(interpreter.register(vx), and, "case {:?}", case);
+
+            // Test `XOR`.
+            interpreter.set_register(vx, b1);
+            interpreter.set_register(vy, b2);
+            interpreter.execute(Instruction::Xor(vx, vy)).unwrap();
+            assert_eq!(interpreter.register(vx), xor, "case {:?}", case);
+        }
+    }
+
     /// Tests the `SUB` and `SUBN` operations.
     #[test]
     fn instruction_sub() {
