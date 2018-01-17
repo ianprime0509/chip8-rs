@@ -17,7 +17,7 @@
 
 //! A basic timer.
 
-use std::num::Wrapping;
+use time;
 
 /// A basic timer.
 #[derive(Debug)]
@@ -26,15 +26,12 @@ pub struct Timer {
     enabled: bool,
     /// The frequency at which to run the timer.
     frequency: u32,
-    /// A latch that is released on every clock cycle.
+    /// A latch that is released (set to `false`) on every clock cycle.
     latch: bool,
     /// Whether we are waiting for a latch release.
     latch_waiting: bool,
-    /// An internal number of ticks.
-    ///
-    /// The absolute number of ticks is meaningless; it is only relative values
-    /// (differences between two values) that are significant.
-    ticks: Wrapping<u32>,
+    /// An internal number of nanoseconds.
+    ns: u64,
 }
 
 impl Timer {
@@ -42,6 +39,7 @@ impl Timer {
     pub fn new(frequency: u32) -> Self {
         let mut timer = Timer::new_disabled(frequency);
         timer.enabled = true;
+        timer.update();
         timer
     }
 
@@ -52,7 +50,52 @@ impl Timer {
             frequency,
             latch: false,
             latch_waiting: false,
-            ticks: Wrapping(0),
+            ns: 0,
         }
+    }
+
+    /// Returns the number of ticks which have elapsed since the last call to
+    /// this method (or the creation of the timer).
+    ///
+    /// This will also release the latch if at least one tick has elapsed.
+    ///
+    /// If the timer is disabled, this always returns 0 and doesn't actually do
+    /// anything else.
+    pub fn lap(&mut self) -> u32 {
+        if self.enabled {
+            let old = self.ns;
+            self.update();
+            let ticks = (self.ns - old) / self.frequency as u64;
+            if ticks > 0 {
+                self.latch = false;
+            }
+            ticks as u32
+        } else {
+            0
+        }
+    }
+
+    /// Sets the latch or waits for it to be released.
+    ///
+    /// If we are not already waiting for the latch, it is set and `false` is
+    /// returned; if we are, then this will return `false` until the latch is
+    /// released.  When the latch is finally released, we return `true` and
+    /// stop waiting for the latch.
+    pub fn wait_for_latch(&mut self) -> bool {
+        if self.latch_waiting {
+            if self.latch {
+                false
+            } else {
+                self.latch_waiting = false;
+                true
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Updates the internal `ns` value.
+    fn update(&mut self) {
+        self.ns = time::precise_time_ns();
     }
 }

@@ -207,6 +207,7 @@ impl Interpreter {
 
     /// Performs a single execution step.
     pub fn step(&mut self) -> Result<(), Error> {
+        self.update_timers();
         let instr = self.current_instruction()?;
         self.execute(instr)
     }
@@ -219,15 +220,21 @@ impl Interpreter {
         use self::Instruction::*;
 
         match ins {
-            Scd(n) => self.display.scroll_down(n as usize),
+            Scd(n) => if self.ready_for_draw() {
+                self.display.scroll_down(n as usize)
+            },
             Cls => self.display.clear(),
             Ret => {
                 self.pc = self.call_stack
                     .pop()
                     .ok_or(InterpreterError::NotInSubroutine)?
             }
-            Scr => self.display.scroll_right(4),
-            Scl => self.display.scroll_left(4),
+            Scr => if self.ready_for_draw() {
+                self.display.scroll_right(4)
+            },
+            Scl => if self.ready_for_draw() {
+                self.display.scroll_left(4)
+            },
             Exit => {
                 self.halted = true;
                 return Ok(());
@@ -368,6 +375,9 @@ impl Interpreter {
 
     /// Implements the `DRW` operation.
     fn drw(&mut self, reg1: Register, reg2: Register, n: u8) {
+        if !self.ready_for_draw() {
+            return;
+        }
         let start = self.reg_i.addr();
         let x = self.register(reg1) as usize;
         let y = self.register(reg2) as usize;
@@ -472,6 +482,28 @@ impl Interpreter {
         let borrow = self.register(reg) > val;
         self.regs[reg as usize] = Wrapping(val) - self.regs[reg as usize];
         self.set_register(Register::VF, if borrow { 0 } else { 1 });
+    }
+
+    /// Delays a draw instruction, returning `true` if the instruction should
+    /// execute and `false` if more time is required.
+    ///
+    /// If the `delay_draws` interpreter option is `false`, then this always
+    /// returns `true`.
+    fn ready_for_draw(&mut self) -> bool {
+        if self.delay_draws {
+            self.timer.wait_for_latch()
+        } else {
+            true
+        }
+    }
+
+    /// Updates the internal timer as well as the `DT` and `ST` registers.
+    fn update_timers(&mut self) {
+        let ticks = self.timer.lap() as u8;
+        let dt = self.dt();
+        let st = self.st();
+        self.set_dt(if dt > ticks { dt - ticks } else { 0 });
+        self.set_st(if st > ticks { st - ticks } else { 0 });
     }
 }
 

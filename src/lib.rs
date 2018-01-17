@@ -29,6 +29,7 @@ extern crate log;
 extern crate maplit;
 extern crate num;
 extern crate rand;
+extern crate time;
 
 /// The size of the Chip-8's memory, in bytes.
 pub const MEM_SIZE: usize = 0x1000;
