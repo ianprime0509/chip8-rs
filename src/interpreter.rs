@@ -58,10 +58,22 @@ pub struct Options {
 }
 
 impl Options {
+    /// Returns the default set of options.
     pub fn new() -> Self {
         Options {
             delay_draws: true,
             enable_timer: true,
+            load_quirks: false,
+            shift_quirks: false,
+            timer_freq: 60,
+        }
+    }
+
+    /// Returns a set of options useful for testing (e.g. no timer).
+    pub fn testing() -> Self {
+        Options {
+            delay_draws: false,
+            enable_timer: false,
             load_quirks: false,
             shift_quirks: false,
             timer_freq: 60,
@@ -216,7 +228,7 @@ impl Interpreter {
     ///
     /// The interpreter will behave as if the given instruction were executed
     /// at the current program location in memory.
-    fn execute(&mut self, ins: Instruction) -> Result<(), Error> {
+    pub fn execute(&mut self, ins: Instruction) -> Result<(), Error> {
         use self::Instruction::*;
 
         match ins {
@@ -368,7 +380,7 @@ impl Interpreter {
     /// Adds the given byte to the given register, setting `VF` to 1 on carry
     /// or 0 otherwise.
     fn add(&mut self, reg: Register, val: u8) {
-        let carry = val > u8::MAX - 1 - self.register(reg);
+        let carry = val > u8::MAX - self.register(reg);
         self.regs[reg as usize] += Wrapping(val);
         self.set_register(Register::VF, if carry { 1 } else { 0 });
     }
