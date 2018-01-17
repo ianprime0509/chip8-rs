@@ -18,6 +18,7 @@
 //! The Chip-8 interpreter.
 
 use std::default::Default;
+use std::io::Read;
 use std::num::Wrapping;
 use std::u8;
 
@@ -26,6 +27,7 @@ use rand;
 
 use MEM_SIZE;
 use PROG_START;
+use PROG_SIZE;
 use Register;
 use display::{self, HEX_HIGH_HEIGHT, HEX_LOW_HEIGHT, HEX_SPRITES_HIGH, HEX_SPRITES_LOW};
 use input::{self, Key};
@@ -37,11 +39,15 @@ const HEX_LOW_START: usize = 0x0;
 /// The location at which to put the high-resolution hex sprites.
 const HEX_HIGH_START: usize = 0x100;
 
-/// An error relating to the interpreter.
+/// An error resulting from a bad `RET` instruction.
 #[derive(Debug, Fail)]
-pub enum InterpreterError {
-    #[fail(display = "no subroutine to return from")] NotInSubroutine,
-}
+#[fail(display = "no subroutine to return from")]
+pub struct NotInSubroutineError;
+
+/// An error resulting from an input program being too large.
+#[derive(Debug, Fail)]
+#[fail(display = "input program is too large")]
+pub struct ProgramTooLargeError;
 
 /// Options for the interpreter.
 pub struct Options {
@@ -165,6 +171,19 @@ impl Interpreter {
         interpreter
     }
 
+    /// Loads program data from the specified source.
+    pub fn load_program<R: Read>(&mut self, input: &mut R) -> Result<(), Error> {
+        let read = input.read(&mut self.mem[PROG_START..])?;
+        if read == PROG_SIZE {
+            // Try to see if we missed part of the file.
+            let mut tmp = [0u8];
+            if input.read(&mut tmp)? == 1 {
+                return Err(ProgramTooLargeError.into());
+            }
+        }
+        Ok(())
+    }
+
     /// Returns the value of register `I`.
     pub fn i(&self) -> Address {
         self.reg_i
@@ -242,9 +261,7 @@ impl Interpreter {
             },
             Cls => self.display.clear(),
             Ret => {
-                self.pc = self.call_stack
-                    .pop()
-                    .ok_or(InterpreterError::NotInSubroutine)?
+                self.pc = self.call_stack.pop().ok_or(NotInSubroutineError)?;
             }
             Scr => if self.ready_for_draw() {
                 self.display.scroll_right(4)
