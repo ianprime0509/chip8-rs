@@ -89,20 +89,58 @@ mod tests {
         for &(vx, vy, b1, b2) in cases.into_iter() {
             let case = (vx, vy, b1, b2);
             let sum = b1.wrapping_add(b2);
-            let overflow = b1 as u32 + b2 as u32 > u8::MAX as u32;
+            let carry = b1 as u32 + b2 as u32 > u8::MAX as u32;
 
             // Test `ADD Vx, byte`.
             interpreter.set_register(vx, b1);
             interpreter.execute(Instruction::AddByte(vx, b2)).unwrap();
             assert_eq!(interpreter.register(vx), sum, "case {:?}", case);
-            assert_eq!(interpreter.register(VF), overflow as u8, "case {:?}", case);
+            assert_eq!(interpreter.register(VF), carry as u8, "case {:?}", case);
 
             // Test `ADD Vx, Vy`.
             interpreter.set_register(vx, b1);
             interpreter.set_register(vy, b2);
             interpreter.execute(Instruction::AddReg(vx, vy)).unwrap();
             assert_eq!(interpreter.register(vx), sum, "case {:?}", case);
-            assert_eq!(interpreter.register(VF), overflow as u8, "case {:?}", case);
+            assert_eq!(interpreter.register(VF), carry as u8, "case {:?}", case);
+        }
+    }
+
+    /// Tests the `SUB` and `SUBN` operations.
+    #[test]
+    fn instruction_sub() {
+        use Register::*;
+
+        // Test cases, in the format (Vx, Vy, b1, b2).
+        let cases = [
+            (V9, V8, 70u8, 35u8),
+            (V6, V2, 56u8, 2u8),
+            (V0, V1, 0u8, 0u8),
+            (VE, VA, 255u8, 255u8),
+            (V3, V7, 1u8, 255u8),
+        ];
+        let mut interpreter = Interpreter::with_options(Options::testing());
+
+        for &(vx, vy, b1, b2) in cases.into_iter() {
+            let case = (vx, vy, b1, b2);
+            let sub = b1.wrapping_sub(b2);
+            let subn = b2.wrapping_sub(b1);
+            let borrow = b2 > b1;
+            let borrown = b1 > b2;
+
+            // Test `SUB Vx, Vy`.
+            interpreter.set_register(vx, b1);
+            interpreter.set_register(vy, b2);
+            interpreter.execute(Instruction::Sub(vx, vy)).unwrap();
+            assert_eq!(interpreter.register(vx), sub, "case {:?}", case);
+            assert_eq!(interpreter.register(VF), !borrow as u8, "case {:?}", case);
+
+            // Test `SUBN Vx, Vy`.
+            interpreter.set_register(vx, b1);
+            interpreter.set_register(vy, b2);
+            interpreter.execute(Instruction::Subn(vx, vy)).unwrap();
+            assert_eq!(interpreter.register(vx), subn, "case {:?}", case);
+            assert_eq!(interpreter.register(VF), !borrown as u8, "case {:?}", case);
         }
     }
 

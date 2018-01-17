@@ -382,7 +382,7 @@ impl Interpreter {
     fn add(&mut self, reg: Register, val: u8) {
         let carry = val > u8::MAX - self.register(reg);
         self.regs[reg as usize] += Wrapping(val);
-        self.set_register(Register::VF, if carry { 1 } else { 0 });
+        self.set_register(Register::VF, carry as u8);
     }
 
     /// Implements the `DRW` operation.
@@ -486,14 +486,14 @@ impl Interpreter {
     fn sub(&mut self, reg: Register, val: u8) {
         let borrow = val > self.register(reg);
         self.regs[reg as usize] -= Wrapping(val);
-        self.set_register(Register::VF, if borrow { 0 } else { 1 });
+        self.set_register(Register::VF, !borrow as u8);
     }
 
     /// Sets `reg` to `val - reg`, setting `VF` to 0 on borrow or 1 otherwise.
     fn subn(&mut self, reg: Register, val: u8) {
         let borrow = self.register(reg) > val;
         self.regs[reg as usize] = Wrapping(val) - self.regs[reg as usize];
-        self.set_register(Register::VF, if borrow { 0 } else { 1 });
+        self.set_register(Register::VF, !borrow as u8);
     }
 
     /// Delays a draw instruction, returning `true` if the instruction should
