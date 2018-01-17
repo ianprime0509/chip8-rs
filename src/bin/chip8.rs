@@ -41,6 +41,8 @@ fn main() {
         .version(VERSION)
         .author("Ian Johnson <ianprime0509@gmail.com>")
         .about("A Chip-8/Super-Chip interpreter")
+        .help_message("show this help message and exit")
+        .version_message("show version information and exit")
         .arg(
             Arg::with_name("frequency")
                 .long("frequency")
