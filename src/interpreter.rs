@@ -22,7 +22,7 @@ use std::io::Read;
 use std::num::Wrapping;
 use std::u8;
 
-use failure::Error;
+use failure::{Error, ResultExt};
 use rand;
 
 use MEM_SIZE;
@@ -261,7 +261,10 @@ impl Interpreter {
             },
             Cls => self.display.clear(),
             Ret => {
-                self.pc = self.call_stack.pop().ok_or(NotInSubroutineError)?;
+                self.pc = self.call_stack
+                    .pop()
+                    .ok_or(NotInSubroutineError)
+                    .with_context(|_| format!("error executing {}", ins))?;
             }
             Scr => if self.ready_for_draw() {
                 self.display.scroll_right(4)
@@ -285,15 +288,15 @@ impl Interpreter {
                 return Ok(());
             }
             SeByte(reg, b) => if self.register(reg) == b {
-                self.pc = (self.pc + 4)?;
+                self.pc = (self.pc + 4).context("program counter overflowed")?;
                 return Ok(());
             },
             SneByte(reg, b) => if self.register(reg) != b {
-                self.pc = (self.pc + 4)?;
+                self.pc = (self.pc + 4).context("program counter overflowed")?;
                 return Ok(());
             },
             SeReg(reg1, reg2) => if self.register(reg1) == self.register(reg2) {
-                self.pc = (self.pc + 4)?;
+                self.pc = (self.pc + 4).context("program counter overflowed")?;
                 return Ok(());
             },
             LdByte(reg, b) => self.set_register(reg, b),
@@ -339,17 +342,20 @@ impl Interpreter {
             },
             LdI(addr) => self.reg_i = addr,
             JpV0(addr) => {
-                self.pc = (addr + self.register(Register::V0) as usize)?.aligned()?;
+                self.pc = (addr + self.register(Register::V0) as usize)
+                    .context("attempted to jump to out of bounds address")?
+                    .aligned()
+                    .context("attempted to jump to misaligned address")?;
                 return Ok(());
             }
             Rnd(reg, b) => self.set_register(reg, rand::random::<u8>() & b),
             Drw(reg1, reg2, n) => self.drw(reg1, reg2, n),
             Skp(reg) => if self.input.is_pressed(Key::from_byte(self.register(reg))) {
-                self.pc = (self.pc + 4)?;
+                self.pc = (self.pc + 4).context("program counter overflowed")?;
                 return Ok(());
             },
             Sknp(reg) => if !self.input.is_pressed(Key::from_byte(self.register(reg))) {
-                self.pc = (self.pc + 4)?;
+                self.pc = (self.pc + 4).context("program counter overflowed")?;
                 return Ok(());
             },
             LdRegDt(reg) => {
@@ -369,7 +375,8 @@ impl Interpreter {
                 self.set_st(r);
             }
             AddI(reg) => {
-                let new_i = (self.i() + self.register(reg) as usize)?;
+                let new_i =
+                    (self.i() + self.register(reg) as usize).context("register 'I' overflowed")?;
                 self.set_i(new_i);
             }
             LdF(reg) => {
@@ -388,14 +395,17 @@ impl Interpreter {
                     ).unwrap(),
                 )
             }
-            LdB(reg) => self.ld_b(reg)?,
-            LdDerefIReg(reg) => self.ld_deref_i_reg(reg)?,
-            LdRegDerefI(reg) => self.ld_reg_deref_i(reg)?,
+            LdB(reg) => self.ld_b(reg)
+                .with_context(|_| format!("error executing {}", ins))?,
+            LdDerefIReg(reg) => self.ld_deref_i_reg(reg)
+                .with_context(|_| format!("error executing {}", ins))?,
+            LdRegDerefI(reg) => self.ld_reg_deref_i(reg)
+                .with_context(|_| format!("error executing {}", ins))?,
             LdRReg(_) => warn!("I don't know what 'LD R, Vx' does"),
             LdRegR(_) => warn!("I don't know what 'LD Vx, R' does"),
         }
 
-        self.pc = (self.pc + 2)?;
+        self.pc = (self.pc + 2).context("program counter overflowed")?;
         Ok(())
     }
 

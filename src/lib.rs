@@ -28,6 +28,8 @@ extern crate num;
 extern crate rand;
 extern crate time;
 
+use std::fmt;
+
 /// The size of the Chip-8's memory, in bytes.
 pub const MEM_SIZE: usize = 0x1000;
 /// The address where programs should be loaded.
@@ -62,6 +64,12 @@ pub enum Register {
     VE,
     VF,
 }
+}
+
+impl fmt::Display for Register {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", *self)
+    }
 }
 
 #[cfg(test)]

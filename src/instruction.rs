@@ -164,6 +164,12 @@ impl Deref for AlignedAddress {
     }
 }
 
+impl fmt::Display for AlignedAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// A Chip-8 instruction.
 ///
 /// See the manual for more complete explanations of what each operation does.
@@ -352,5 +358,59 @@ impl Instruction {
             },
             _ => unreachable!("4-bit quantity didn't match 0-15"),
         })
+    }
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Instruction::*;
+
+        match *self {
+            Scd(n) => write!(f, "SCD {}", n),
+            Cls => write!(f, "CLS"),
+            Ret => write!(f, "RET"),
+            Scr => write!(f, "SCR"),
+            Scl => write!(f, "SCL"),
+            Exit => write!(f, "EXIT"),
+            Low => write!(f, "LOW"),
+            High => write!(f, "HIGH"),
+            Jp(addr) => write!(f, "JP {}", addr),
+            Call(addr) => write!(f, "CALL {}", addr),
+            SeByte(reg, b) => write!(f, "SE {}, #{:02X}", reg, b),
+            SneByte(reg, b) => write!(f, "SNE {}, #{:02X}", reg, b),
+            SeReg(reg1, reg2) => write!(f, "SE {}, {}", reg1, reg2),
+            LdByte(reg, b) => write!(f, "LD {}, #{:02X}", reg, b),
+            AddByte(reg, b) => write!(f, "ADD {}, #{:02X}", reg, b),
+            LdReg(reg1, reg2) => write!(f, "LD {}, {}", reg1, reg2),
+            Or(reg1, reg2) => write!(f, "OR {}, {}", reg1, reg2),
+            And(reg1, reg2) => write!(f, "AND {}, {}", reg1, reg2),
+            Xor(reg1, reg2) => write!(f, "XOR {}, {}", reg1, reg2),
+            AddReg(reg1, reg2) => write!(f, "ADD {}, {}", reg1, reg2),
+            Sub(reg1, reg2) => write!(f, "SUB {}, {}", reg1, reg2),
+            Shr(reg) => write!(f, "SHR {}", reg),
+            ShrQuirk(reg1, reg2) => write!(f, "SHR {}, {}", reg1, reg2),
+            Subn(reg1, reg2) => write!(f, "SUBN {}, {}", reg1, reg2),
+            Shl(reg) => write!(f, "SHL {}", reg),
+            ShlQuirk(reg1, reg2) => write!(f, "SHL {}, {}", reg1, reg2),
+            SneReg(reg1, reg2) => write!(f, "SNE {}, {}", reg1, reg2),
+            LdI(addr) => write!(f, "LD I, {}", addr),
+            JpV0(addr) => write!(f, "JP V0, {}", addr),
+            Rnd(reg, b) => write!(f, "RND {}, #{:02X}", reg, b),
+            Drw(reg1, reg2, n) => write!(f, "DRW {}, {}, {}", reg1, reg2, n),
+            Skp(reg) => write!(f, "SKP {}", reg),
+            Sknp(reg) => write!(f, "SKNP {}", reg),
+            LdRegDt(reg) => write!(f, "LD {}, DT", reg),
+            LdKey(reg) => write!(f, "LD {}, K", reg),
+            LdDtReg(reg) => write!(f, "LD DT, {}", reg),
+            LdSt(reg) => write!(f, "LD ST, {}", reg),
+            AddI(reg) => write!(f, "ADD I, {}", reg),
+            LdF(reg) => write!(f, "LD F, {}", reg),
+            LdHf(reg) => write!(f, "LD HF, {}", reg),
+            LdB(reg) => write!(f, "LD B, {}", reg),
+            LdDerefIReg(reg) => write!(f, "LD [I], {}", reg),
+            LdRegDerefI(reg) => write!(f, "LD {}, [I]", reg),
+            LdRReg(reg) => write!(f, "LD R, {}", reg),
+            LdRegR(reg) => write!(f, "LD {}, R", reg),
+        }
     }
 }
