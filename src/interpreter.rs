@@ -184,6 +184,16 @@ impl Interpreter {
         Ok(())
     }
 
+    /// Returns a reference to the display buffer.
+    pub fn display(&self) -> &display::Buffer {
+        &self.display
+    }
+
+    /// Returns a mutable reference to the display buffer.
+    pub fn display_mut(&mut self) -> &mut display::Buffer {
+        &mut self.display
+    }
+
     /// Returns the value of register `I`.
     pub fn i(&self) -> Address {
         self.reg_i
@@ -258,6 +268,8 @@ impl Interpreter {
         match ins {
             Scd(n) => if self.ready_for_draw() {
                 self.display.scroll_down(n as usize)
+            } else {
+                return Ok(());
             },
             Cls => self.display.clear(),
             Ret => {
@@ -268,16 +280,20 @@ impl Interpreter {
             }
             Scr => if self.ready_for_draw() {
                 self.display.scroll_right(4)
+            } else {
+                return Ok(());
             },
             Scl => if self.ready_for_draw() {
                 self.display.scroll_left(4)
+            } else {
+                return Ok(());
             },
             Exit => {
                 self.halted = true;
                 return Ok(());
             }
-            Low => self.display.set_low(),
-            High => self.display.set_high(),
+            Low => self.display.set_high(false),
+            High => self.display.set_high(true),
             Jp(addr) => {
                 self.pc = addr;
                 return Ok(());
@@ -349,7 +365,11 @@ impl Interpreter {
                 return Ok(());
             }
             Rnd(reg, b) => self.set_register(reg, rand::random::<u8>() & b),
-            Drw(reg1, reg2, n) => self.drw(reg1, reg2, n),
+            Drw(reg1, reg2, n) => if self.ready_for_draw() {
+                self.drw(reg1, reg2, n);
+            } else {
+                return Ok(());
+            },
             Skp(reg) => if self.input.is_pressed(Key::from_byte(self.register(reg))) {
                 self.pc = (self.pc + 4).context("program counter overflowed")?;
                 return Ok(());
@@ -419,9 +439,6 @@ impl Interpreter {
 
     /// Implements the `DRW` operation.
     fn drw(&mut self, reg1: Register, reg2: Register, n: u8) {
-        if !self.ready_for_draw() {
-            return;
-        }
         let start = self.reg_i.addr();
         let x = self.register(reg1) as usize;
         let y = self.register(reg2) as usize;

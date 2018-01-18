@@ -19,6 +19,8 @@
 
 use std::default::Default;
 
+use failure::Fail;
+
 /// The width of the display.
 pub const WIDTH: usize = 128;
 /// The height of the display.
@@ -96,6 +98,12 @@ impl Buffer {
                 *elem = false;
             }
         }
+        self.needs_refresh = true;
+    }
+
+    /// Returns a reference to the underlying pixel data.
+    pub fn data(&self) -> &[[bool; HEIGHT]; WIDTH] {
+        &self.data
     }
 
     /// Draws the given low-resolution sprite at the given position.
@@ -134,6 +142,33 @@ impl Buffer {
         collision
     }
 
+    /// Returns whether the display is in high-resolution mode.
+    pub fn high(&self) -> bool {
+        self.high_resolution
+    }
+
+    /// Sets whether the display is in high-resolution mode.
+    pub fn set_high(&mut self, high: bool) {
+        self.high_resolution = high;
+    }
+
+    /// Refreshes the display using the given refresh function.
+    ///
+    /// If a refresh is unnecessary, nothing will be done.  The refresh
+    /// function receives a "snapshot" of the display, and should draw that to
+    /// whatever user-facing display buffer is currently being used.
+    pub fn refresh<F, E>(&mut self, f: F) -> Result<(), E>
+    where
+        F: FnOnce(&Self) -> Result<(), E>,
+        E: Fail,
+    {
+        if self.needs_refresh {
+            f(self)?;
+            self.needs_refresh = false;
+        }
+        Ok(())
+    }
+
     /// Scrolls the display down the given number of pixels.
     pub fn scroll_down(&mut self, amt: usize) {
         for col in self.data.iter_mut() {
@@ -144,6 +179,7 @@ impl Buffer {
                 col[i] = false;
             }
         }
+        self.needs_refresh = true;
     }
 
     /// Scrolls the display left the given number of pixels.
@@ -158,6 +194,7 @@ impl Buffer {
                 *elem = false;
             }
         }
+        self.needs_refresh = true;
     }
 
     /// Scrolls the display right the given number of pixels.
@@ -172,16 +209,7 @@ impl Buffer {
                 *elem = false;
             }
         }
-    }
-
-    /// Sets the display to high-resolution mode.
-    pub fn set_high(&mut self) {
-        self.high_resolution = true;
-    }
-
-    /// Sets the display to low-resolution mode.
-    pub fn set_low(&mut self) {
-        self.high_resolution = false;
+        self.needs_refresh = true;
     }
 
     /// Flips the on/off state of the given pixel, returning whether it was

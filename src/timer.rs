@@ -17,6 +17,8 @@
 
 //! A basic timer.
 
+use std::num::Wrapping;
+
 use time;
 
 /// A basic timer.
@@ -30,8 +32,8 @@ pub struct Timer {
     latch: bool,
     /// Whether we are waiting for a latch release.
     latch_waiting: bool,
-    /// An internal number of nanoseconds.
-    ns: u64,
+    /// An internal number of ticks.
+    ticks: Wrapping<u32>,
 }
 
 impl Timer {
@@ -50,7 +52,7 @@ impl Timer {
             frequency,
             latch: false,
             latch_waiting: false,
-            ns: 0,
+            ticks: Wrapping(0),
         }
     }
 
@@ -63,13 +65,13 @@ impl Timer {
     /// anything else.
     pub fn lap(&mut self) -> u32 {
         if self.enabled {
-            let old = self.ns;
+            let old = self.ticks;
             self.update();
-            let ticks = (self.ns - old) / self.frequency as u64;
+            let ticks = (self.ticks - old).0;
             if ticks > 0 {
                 self.latch = false;
             }
-            ticks as u32
+            ticks
         } else {
             0
         }
@@ -90,12 +92,14 @@ impl Timer {
                 true
             }
         } else {
+            self.latch_waiting = true;
             false
         }
     }
 
     /// Updates the internal `ns` value.
     fn update(&mut self) {
-        self.ns = time::precise_time_ns();
+        self.ticks =
+            Wrapping((time::precise_time_ns() as f64 * self.frequency as f64 / 1e9) as u32);
     }
 }

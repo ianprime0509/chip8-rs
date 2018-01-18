@@ -20,21 +20,108 @@
 extern crate chip8;
 extern crate clap;
 extern crate env_logger;
+#[macro_use]
 extern crate failure;
 #[macro_use]
 extern crate log;
+extern crate sdl2;
 
+use std::fs::File;
 use std::io::Write;
 use std::process;
 
 use clap::{App, Arg, ArgMatches};
 use env_logger::Builder;
-use failure::{Error, ResultExt};
+use failure::{Error, Fail, ResultExt};
 use log::LevelFilter;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
+use sdl2::rect::Rect;
+use sdl2::render::Canvas;
+use sdl2::video::Window;
 
+use chip8::display;
 use chip8::interpreter::{Interpreter, Options};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// An SDL error.
+#[derive(Debug, Fail)]
+#[fail(display = "SDL error: {}", _0)]
+struct SdlError(String);
+
+/// The display buffer for the interpreter.
+struct Display {
+    /// The underlying SDL canvas.
+    canvas: Canvas<Window>,
+    /// The background color to use.
+    bg: Color,
+    /// The foreground color to use.
+    fg: Color,
+}
+
+impl Display {
+    /// Initializes the display and returns the resulting object.
+    fn new(
+        video_subsystem: sdl2::VideoSubsystem,
+        width: u32,
+        height: u32,
+        bg: Color,
+        fg: Color,
+    ) -> Result<Self, Error> {
+        let window = video_subsystem.window("Chip-8", width, height).build()?;
+        let mut canvas = window.into_canvas().present_vsync().build()?;
+
+        canvas.set_draw_color(bg);
+        canvas.clear();
+        canvas.present();
+
+        Ok(Display { canvas, bg, fg })
+    }
+
+    /// Draws the given Chip-8 display buffer to the window.
+    fn draw(&mut self, buffer: &display::Buffer) -> Result<(), SdlError> {
+        let (width, height) = self.canvas.window().size();
+        let scalex = width / display::WIDTH as u32;
+        let scaley = height / display::HEIGHT as u32;
+
+        self.canvas.set_draw_color(self.bg);
+        self.canvas.clear();
+        self.canvas.set_draw_color(self.fg);
+        if buffer.high() {
+            for (x, col) in buffer.data().iter().enumerate() {
+                for (y, &pixel) in col.iter().enumerate() {
+                    if pixel {
+                        let x = x as i32 * scalex as i32;
+                        let y = y as i32 * scaley as i32;
+
+                        self.canvas
+                            .fill_rect(Rect::new(x, y, scalex, scaley))
+                            .map_err(SdlError)?;
+                    }
+                }
+            }
+        } else {
+            for (x, col) in buffer.data().iter().take(display::WIDTH / 2).enumerate() {
+                for (y, &pixel) in col.iter().take(display::HEIGHT / 2).enumerate() {
+                    if pixel {
+                        let scalex = 2 * scalex;
+                        let scaley = 2 * scaley;
+                        let x = x as i32 * scalex as i32;
+                        let y = y as i32 * scaley as i32;
+
+                        self.canvas
+                            .fill_rect(Rect::new(x, y, scalex, scaley))
+                            .map_err(SdlError)?;
+                    }
+                }
+            }
+        }
+        self.canvas.present();
+        Ok(())
+    }
+}
 
 fn main() {
     let matches = App::new("Chip-8")
@@ -143,7 +230,37 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         .context("invalid volume argument")?;
 
     println!("scale is {}; tone is {}; volume is {}", scale, tone, volume);
-    let mut _interpreter = Interpreter::with_options(opts);
+    let filename = matches.value_of("FILE").unwrap();
+    let mut input =
+        File::open(filename).with_context(|_| format!("could not open file '{}'", filename))?;
+    let mut interpreter = Interpreter::with_options(opts);
+    interpreter
+        .load_program(&mut input)
+        .with_context(|_| format!("could not load program from file '{}'", filename))?;
+
+    let sdl_context = sdl2::init().map_err(SdlError)?;
+    let video_subsystem = sdl_context.video().map_err(SdlError)?;
+    let mut event_pump = sdl_context.event_pump().map_err(SdlError)?;
+    let mut display = Display::new(
+        video_subsystem,
+        display::WIDTH as u32 * scale,
+        display::HEIGHT as u32 * scale,
+        Color::RGB(0, 0, 0),
+        Color::RGB(255, 255, 255),
+    )?;
+
+    'main: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. } => break 'main,
+                _ => {}
+            }
+        }
+
+        interpreter.display_mut().refresh(|buf| display.draw(buf))?;
+        interpreter.step()?;
+    }
+
     Ok(())
 }
 
