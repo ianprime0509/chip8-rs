@@ -93,6 +93,7 @@ impl Timer {
             }
         } else {
             self.latch_waiting = true;
+            self.latch = true;
             false
         }
     }

@@ -29,6 +29,7 @@ extern crate sdl2;
 use std::fs::File;
 use std::io::Write;
 use std::process;
+use std::thread;
 
 use clap::{App, Arg, ArgMatches};
 use env_logger::Builder;
@@ -71,7 +72,7 @@ impl Display {
         fg: Color,
     ) -> Result<Self, Error> {
         let window = video_subsystem.window("Chip-8", width, height).build()?;
-        let mut canvas = window.into_canvas().present_vsync().build()?;
+        let mut canvas = window.into_canvas().build()?;
 
         canvas.set_draw_color(bg);
         canvas.clear();
@@ -259,6 +260,7 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
 
         interpreter.display_mut().refresh(|buf| display.draw(buf))?;
         interpreter.step()?;
+        thread::yield_now();
     }
 
     Ok(())

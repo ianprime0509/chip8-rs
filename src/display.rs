@@ -115,7 +115,9 @@ impl Buffer {
         for (j, row) in sprite.iter().enumerate() {
             for i in 0..8 {
                 if row & (1 << (7 - i)) != 0 {
-                    collision = collision || self.toggle(x + i, y + j);
+                    if self.toggle(x + i, y + j) {
+                        collision = true;
+                    }
                 }
             }
         }
@@ -133,7 +135,9 @@ impl Buffer {
             for (k, chunk) in row.iter().enumerate() {
                 for i in 0..8 {
                     if chunk & (1 << (7 - i)) != 0 {
-                        collision = collision || self.toggle(x + 2 * k + i, y + j);
+                        if self.toggle(x + 8 * k + i, y + j) {
+                            collision = true;
+                        }
                     }
                 }
             }
