@@ -500,3 +500,75 @@ impl fmt::Display for Instruction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Tests opcode to instruction translation.
+    #[test]
+    fn opcode_translation() {
+        use Register::*;
+        use instruction::Address;
+        use instruction::Instruction;
+        use instruction::Instruction::*;
+        use instruction::Opcode;
+
+        let cases = [
+            (0x00C4, Scd(4)),
+            (0x00E0, Cls),
+            (0x00EE, Ret),
+            (0x00FB, Scr),
+            (0x00FC, Scl),
+            (0x00FD, Exit),
+            (0x00FE, Low),
+            (0x00FF, High),
+            (
+                0x1234,
+                Jp(Address::from_u16(0x234).unwrap().aligned().unwrap()),
+            ),
+            (
+                0x2456,
+                Call(Address::from_u16(0x456).unwrap().aligned().unwrap()),
+            ),
+            (0x342A, SeByte(V4, 0x2A)),
+            (0x4A75, SneByte(VA, 0x75)),
+            (0x5AE0, SeReg(VA, VE)),
+            (0x63F5, LdByte(V3, 0xF5)),
+            (0x7B12, AddByte(VB, 0x12)),
+            (0x8590, LdReg(V5, V9)),
+            (0x8101, Or(V1, V0)),
+            (0x8642, And(V6, V4)),
+            (0x87F3, Xor(V7, VF)),
+            (0x8264, AddReg(V2, V6)),
+            (0x8C45, Sub(VC, V4)),
+            (0x8106, Shr(V1)),
+            (0x86D7, Subn(V6, VD)),
+            (0x8E0E, Shl(VE)),
+            (0x9990, SneReg(V9, V9)),
+            (0xA568, LdI(Address::from_u16(0x568).unwrap())),
+            (0xBABC, JpV0(Address::from_u16(0xABC).unwrap())),
+            (0xC5AF, Rnd(V5, 0xAF)),
+            (0xD7B0, Drw(V7, VB, 0)),
+            (0xE49E, Skp(V4)),
+            (0xECA1, Sknp(VC)),
+            (0xF907, LdRegDt(V9)),
+            (0xFD0A, LdKey(VD)),
+            (0xF315, LdDtReg(V3)),
+            (0xF718, LdSt(V7)),
+            (0xF91E, AddI(V9)),
+            (0xFF29, LdF(VF)),
+            (0xF230, LdHf(V2)),
+            (0xF533, LdB(V5)),
+            (0xF655, LdDerefIReg(V6)),
+            (0xF865, LdRegDerefI(V8)),
+            (0xF175, LdRReg(V1)),
+            (0xF485, LdRegR(V4)),
+        ];
+
+        for &(opcode, ref instr) in cases.iter() {
+            assert_eq!(
+                Instruction::from_opcode(Opcode(opcode), false).unwrap(),
+                *instr
+            );
+        }
+    }
+}
