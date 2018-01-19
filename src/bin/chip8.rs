@@ -410,6 +410,10 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         // from the method itself; providing more context here would shadow the
         // more useful errors defined there.
         interpreter.step()?;
+        if interpreter.halted() {
+            info!("interpreter was halted");
+            break;
+        }
         if interpreter.st() != 0 {
             device.resume();
         } else {

@@ -194,6 +194,11 @@ impl Interpreter {
         &mut self.display
     }
 
+    /// Returns whether the interpreter has been halted.
+    pub fn halted(&self) -> bool {
+        self.halted
+    }
+
     /// Returns a reference to the input state.
     pub fn input(&self) -> &input::State {
         &self.input
@@ -273,9 +278,13 @@ impl Interpreter {
 
     /// Performs a single execution step.
     pub fn step(&mut self) -> Result<(), Error> {
-        self.update_timers();
-        let instr = self.current_instruction()?;
-        self.execute(instr)
+        if !self.halted {
+            self.update_timers();
+            let instr = self.current_instruction()?;
+            self.execute(instr)
+        } else {
+            Ok(())
+        }
     }
 
     /// Executes the given instruction in the current interpreter context.
