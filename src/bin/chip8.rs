@@ -24,8 +24,12 @@ extern crate env_logger;
 extern crate failure;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate maplit;
 extern crate sdl2;
 
+use std::collections::HashMap;
+use std::default::Default;
 use std::fs::File;
 use std::io::Write;
 use std::process;
@@ -33,7 +37,7 @@ use std::thread;
 
 use clap::{App, Arg, ArgMatches};
 use env_logger::Builder;
-use failure::{Error, Fail, ResultExt};
+use failure::{Error, ResultExt};
 use log::LevelFilter;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -44,6 +48,7 @@ use sdl2::video::Window;
 
 use chip8::display;
 use chip8::interpreter::{Interpreter, Options};
+use chip8::input::Key;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -121,6 +126,80 @@ impl Display {
         }
         self.canvas.present();
         Ok(())
+    }
+}
+
+/// A utility to process SDL key events and press/release the corresponding
+/// buttons in the interpreter's input buffer.
+struct Controller {
+    /// The map from scancodes to Chip-8 keys.
+    ///
+    /// The alternative would be to use scancodes instead of keycodes, which
+    /// would have the advantage of working even on alternative keyboard
+    /// layouts with the keys in the same position, but it would also make
+    /// documentation more difficult (unless we refer to the keys in the QWERTY
+    /// layout, which might not be intuitive to people).  I think it's better
+    /// long-term if we just have the layout configurable, and people using
+    /// other layouts can change the default as they see fit.
+    ///
+    /// In any case, this is an easy decision to change later, so there's no
+    /// need to worry too much about it now.
+    keymap: HashMap<Keycode, Key>,
+}
+
+impl Controller {
+    /// Returns a controller with the default keymap.
+    fn new() -> Self {
+        use Keycode::*;
+        use Key::*;
+
+        Controller::with_keymap(hashmap![
+            Num1 => K1,
+            Num2 => K2,
+            Num3 => K3,
+            Num4 => KC,
+            Q => K4,
+            W => K5,
+            E => K6,
+            R => KD,
+            A => K7,
+            S => K8,
+            D => K9,
+            F => KE,
+            Z => KA,
+            X => K0,
+            C => KB,
+            V => KF,
+        ])
+    }
+
+    /// Returns a controller with the given keymap.
+    fn with_keymap(keymap: HashMap<Keycode, Key>) -> Self {
+        Controller { keymap }
+    }
+
+    /// Processes the given SDL event, applying the corresponding action to the
+    /// given interpreter.
+    fn process(&self, event: Event, interpreter: &mut Interpreter) {
+        match event {
+            Event::KeyDown {
+                keycode: Some(key), ..
+            } => if let Some(&key) = self.keymap.get(&key) {
+                interpreter.input_mut().press(key);
+            },
+            Event::KeyUp {
+                keycode: Some(key), ..
+            } => if let Some(&key) = self.keymap.get(&key) {
+                interpreter.input_mut().release(key);
+            },
+            _ => {}
+        }
+    }
+}
+
+impl Default for Controller {
+    fn default() -> Self {
+        Controller::new()
     }
 }
 
@@ -249,12 +328,14 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         Color::RGB(0, 0, 0),
         Color::RGB(255, 255, 255),
     )?;
+    let controller = Controller::new();
 
     'main: loop {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'main,
-                _ => {}
+                Event::Window { .. } => interpreter.display_mut().force_refresh(),
+                e => controller.process(e, &mut interpreter),
             }
         }
 

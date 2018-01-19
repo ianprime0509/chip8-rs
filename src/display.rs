@@ -146,6 +146,12 @@ impl Buffer {
         collision
     }
 
+    /// Forces a refresh on the next call to `refresh`, even if no draw
+    /// operation has been performed.
+    pub fn force_refresh(&mut self) {
+        self.needs_refresh = true;
+    }
+
     /// Returns whether the display is in high-resolution mode.
     pub fn high(&self) -> bool {
         self.high_resolution

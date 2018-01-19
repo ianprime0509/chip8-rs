@@ -194,6 +194,16 @@ impl Interpreter {
         &mut self.display
     }
 
+    /// Returns a reference to the input state.
+    pub fn input(&self) -> &input::State {
+        &self.input
+    }
+
+    /// Returns a mutable reference to the input state.
+    pub fn input_mut(&mut self) -> &mut input::State {
+        &mut self.input
+    }
+
     /// Returns the value of register `I`.
     pub fn i(&self) -> Address {
         self.reg_i
