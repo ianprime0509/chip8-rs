@@ -28,8 +28,6 @@ extern crate num;
 extern crate rand;
 extern crate time;
 
-use std::fmt;
-
 /// The size of the Chip-8's memory, in bytes.
 pub const MEM_SIZE: usize = 0x1000;
 /// The address where programs should be loaded.
@@ -43,34 +41,8 @@ pub mod instruction;
 pub mod interpreter;
 mod timer;
 
-enum_from_primitive! {
-/// A Chip-8 register.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Register {
-    V0 = 0,
-    V1,
-    V2,
-    V3,
-    V4,
-    V5,
-    V6,
-    V7,
-    V8,
-    V9,
-    VA,
-    VB,
-    VC,
-    VD,
-    VE,
-    VF,
-}
-}
-
-impl fmt::Display for Register {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", *self)
-    }
-}
+pub use instruction::{Address, AlignedAddress, Instruction, Opcode, Register};
+pub use interpreter::Interpreter;
 
 #[cfg(test)]
 mod tests {

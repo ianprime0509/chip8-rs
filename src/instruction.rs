@@ -15,7 +15,17 @@
 // You should have received a copy of the GNU General Public License
 // along with Chip-8.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Chip-8 instruction translation.
+//! Chip-8 instructions and opcodes.
+//!
+//! This module provides the basic types and functions for working with Chip-8
+//! instructions and opcodes, including (most notably) the translation of
+//! opcodes to the internal `Instruction` type.  The design of this module is
+//! intended to make higher-level components, like the interpreter, as simple
+//! and understandable as possible.  For example, the presence of the
+//! `Instruction` type as an intermediate stage between opcodes and execution
+//! makes the interpreter code much nicer and prevents it from having to deal
+//! with errors (such as misaligned jump instructions) which should be dealt
+//! with at a lower level.
 
 use std::fmt;
 use std::ops::Add;
@@ -25,7 +35,6 @@ use failure::Error;
 use num::FromPrimitive;
 
 use MEM_SIZE;
-use Register;
 
 /// An error resulting from an out-of-bounds address.
 #[derive(Debug, Fail, PartialEq, Eq)]
@@ -36,13 +45,44 @@ pub struct AddressOutOfBoundsError(pub usize);
 #[fail(display = "misaligned address: {:#04X}", _0)]
 pub struct AddressMisalignedError(pub usize);
 
-/// An error resulting from an instruction.
+/// An error resulting from an invalid opcode.
 #[derive(Debug, Fail, PartialEq, Eq)]
-pub enum InstructionError {
-    #[fail(display = "invalid opcode: {}", _0)] InvalidOpcode(Opcode),
+#[fail(display = "invalid opcode: {}", _0)]
+struct InvalidOpcodeError(Opcode);
+
+enum_from_primitive! {
+/// A Chip-8 register.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Register {
+    V0 = 0,
+    V1,
+    V2,
+    V3,
+    V4,
+    V5,
+    V6,
+    V7,
+    V8,
+    V9,
+    VA,
+    VB,
+    VC,
+    VD,
+    VE,
+    VF,
+}
+}
+
+impl fmt::Display for Register {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", *self)
+    }
 }
 
 /// A Chip-8 opcode.
+///
+/// Having this as a wrapper around an ordinary `u16` allows for some nice
+/// helper methods to be implemented, which make decoding opcodes much easier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Opcode(pub u16);
 
@@ -85,7 +125,7 @@ impl Opcode {
 
 impl fmt::Display for Opcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:#04X}", self.0)
+        write!(f, "#{:04X}", self.0)
     }
 }
 
@@ -93,7 +133,23 @@ impl fmt::Display for Opcode {
 ///
 /// All addresses must be within the addressable range, and some addresses (but
 /// not all) must be aligned on a 2-byte boundary.  The former condition is
-/// guaranteed to be satisfied for any instance of this type.
+/// guaranteed to be satisfied for any instance of this type; the latter
+/// condition is satisfied by the `AlignedAddress` type, which can be produced
+/// from an `Address` using the `aligned` method.
+///
+/// # Examples
+///
+/// Addresses must be within the proper bounds, and can be further verified as
+/// properly aligned:
+///
+/// ```
+/// use chip8::Address;
+///
+/// let addr = Address::from_u16(0x204).unwrap();
+/// assert_eq!(addr.addr(), 0x204);
+/// let aligned = addr.aligned().unwrap();
+/// assert_eq!(aligned.addr(), 0x204);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Address(usize);
 
@@ -145,6 +201,10 @@ impl fmt::Display for Address {
 }
 
 /// A Chip-8 address which is guaranteed to be aligned.
+///
+/// An `AlignedAddress` is like an `Address` (and dereferences to one), but is
+/// guaranteed to be aligned to a 2-byte boundary.  Thus, it is suitable for
+/// use as a program counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AlignedAddress(Address);
 
@@ -173,6 +233,32 @@ impl fmt::Display for AlignedAddress {
 /// A Chip-8 instruction.
 ///
 /// See the manual for more complete explanations of what each operation does.
+/// This is an internal representation used to make working with instructions
+/// easier; if this type were not present, then opcodes would have to be
+/// deciphered every time an instruction is used, which would quickly become
+/// inconvenient.  Also, this type guarantees that the instruction it
+/// represents is valid, so there is no need to check opcode validity on every
+/// use.
+///
+/// # Examples
+///
+/// Instructions can be created from opcodes:
+///
+/// ```
+/// use chip8::{Instruction, Opcode, Register};
+///
+/// // We don't use shift quirks in this example.
+/// let instr = Instruction::from_opcode(Opcode(0x7510), false).unwrap();
+/// assert_eq!(instr, Instruction::AddByte(Register::V5, 0x10));
+/// ```
+///
+/// Invalid instructions, such as misaligned jumps, are not accepted:
+///
+/// ```
+/// use chip8::{Instruction, Opcode};
+///
+/// assert!(Instruction::from_opcode(Opcode(0x1201), false).is_err());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     /// `SCD nibble` (`00Cn`).
@@ -289,7 +375,7 @@ impl Instruction {
                     0xFD => Exit,
                     0xFE => Low,
                     0xFF => High,
-                    _ => Err(InstructionError::InvalidOpcode(opcode))?,
+                    _ => Err(InvalidOpcodeError(opcode))?,
                 }
             },
             0x1 => Jp(opcode.addr()?.aligned()?),
@@ -299,7 +385,7 @@ impl Instruction {
             0x5 => if opcode.0 & 0xF == 0 {
                 SeReg(opcode.vx(), opcode.vy())
             } else {
-                Err(InstructionError::InvalidOpcode(opcode))?
+                Err(InvalidOpcodeError(opcode))?
             },
             0x6 => LdByte(opcode.vx(), opcode.byte()),
             0x7 => AddByte(opcode.vx(), opcode.byte()),
@@ -315,7 +401,7 @@ impl Instruction {
                 } else if opcode.0 & 0xF0 == 0x00 {
                     Shr(opcode.vx())
                 } else {
-                    Err(InstructionError::InvalidOpcode(opcode))?
+                    Err(InvalidOpcodeError(opcode))?
                 },
                 0x7 => Subn(opcode.vx(), opcode.vy()),
                 0xE => if shift_quirks {
@@ -323,14 +409,14 @@ impl Instruction {
                 } else if opcode.0 & 0xF0 == 0x00 {
                     Shl(opcode.vx())
                 } else {
-                    Err(InstructionError::InvalidOpcode(opcode))?
+                    Err(InvalidOpcodeError(opcode))?
                 },
-                _ => Err(InstructionError::InvalidOpcode(opcode))?,
+                _ => Err(InvalidOpcodeError(opcode))?,
             },
             0x9 => if opcode.0 & 0xF == 0 {
                 SneReg(opcode.vx(), opcode.vy())
             } else {
-                Err(InstructionError::InvalidOpcode(opcode))?
+                Err(InvalidOpcodeError(opcode))?
             },
             0xA => LdI(opcode.addr()?),
             0xB => JpV0(opcode.addr()?),
@@ -339,7 +425,7 @@ impl Instruction {
             0xE => match opcode.0 & 0xFF {
                 0x9E => Skp(opcode.vx()),
                 0xA1 => Sknp(opcode.vx()),
-                _ => Err(InstructionError::InvalidOpcode(opcode))?,
+                _ => Err(InvalidOpcodeError(opcode))?,
             },
             0xF => match opcode.0 & 0xFF {
                 0x07 => LdRegDt(opcode.vx()),
@@ -354,7 +440,7 @@ impl Instruction {
                 0x65 => LdRegDerefI(opcode.vx()),
                 0x75 => LdRReg(opcode.vx()),
                 0x85 => LdRegR(opcode.vx()),
-                _ => Err(InstructionError::InvalidOpcode(opcode))?,
+                _ => Err(InvalidOpcodeError(opcode))?,
             },
             _ => unreachable!("4-bit quantity didn't match 0-15"),
         })

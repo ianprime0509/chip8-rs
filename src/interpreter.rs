@@ -16,6 +16,13 @@
 // along with Chip-8.  If not, see <http://www.gnu.org/licenses/>.
 
 //! The Chip-8 interpreter.
+//!
+//! The main focus of this module is the `Interpreter` struct, which contains
+//! the state of a Chip-8 interpreter and provides the main interface to be
+//! used by the front-end.  Several options can be configured using the
+//! `Options` struct, such as whether to use shift or load quirks mode.  More
+//! details about what the interpreter is actually doing and what certain
+//! options are (like the various "quirks" modes) can be found in the manual.
 
 use std::default::Default;
 use std::io::Read;
@@ -93,7 +100,11 @@ impl Default for Options {
     }
 }
 
-/// The interpreter.
+/// A Chip-8 interpreter.
+///
+/// This struct contains the entire state of a Chip-8 interpreter and provides
+/// all the expected methods for interacting with an interpreter, such as
+/// stepping through execution and inspecting the internal state.
 pub struct Interpreter {
     /// The internal memory.
     mem: [u8; MEM_SIZE],
