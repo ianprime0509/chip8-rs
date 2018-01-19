@@ -155,6 +155,36 @@ mod tests {
         }
     }
 
+    /// Tests the `LD B, Vx` operation.
+    #[test]
+    fn instruction_ld_b() {
+        use Register::*;
+
+        // Test cases, in the format (Vx, n1, n2, n3), where the three digits
+        // to be stored are n1, n2 and n3 (in that order).
+        let cases = [
+            (V5, 1, 2, 3),
+            (VD, 0, 0, 1),
+            (VE, 1, 0, 0),
+            (V2, 2, 5, 5),
+            (V6, 0, 0, 0),
+            (V8, 0, 6, 4),
+        ];
+        let mut interpreter = Interpreter::with_options(Options::testing());
+
+        for &(vx, n1, n2, n3) in cases.into_iter() {
+            let case = (vx, n1, n2, n3);
+            let n = 100 * n1 + 10 * n2 + n3;
+
+            interpreter.set_register(vx, n);
+            interpreter.execute(Instruction::LdB(vx)).unwrap();
+            let i = interpreter.i().addr();
+            assert_eq!(interpreter.mem()[i], n1, "case {:?}", case);
+            assert_eq!(interpreter.mem()[i + 1], n2, "case {:?}", case);
+            assert_eq!(interpreter.mem()[i + 2], n3, "case {:?}", case);
+        }
+    }
+
     /// Tests the `SUB` and `SUBN` operations.
     #[test]
     fn instruction_sub() {

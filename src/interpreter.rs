@@ -204,6 +204,16 @@ impl Interpreter {
         &mut self.input
     }
 
+    /// Returns a reference to the internal memory.
+    pub fn mem(&self) -> &[u8; MEM_SIZE] {
+        &self.mem
+    }
+
+    /// Returns a mutable reference to the internal memory.
+    pub fn mem_mut(&mut self) -> &mut [u8; MEM_SIZE] {
+        &mut self.mem
+    }
+
     /// Returns the value of register `I`.
     pub fn i(&self) -> Address {
         self.reg_i

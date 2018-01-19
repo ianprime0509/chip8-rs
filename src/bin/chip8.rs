@@ -357,10 +357,21 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         .load_program(&mut input)
         .with_context(|_| format!("could not load program from file '{}'", filename))?;
 
-    let sdl_context = sdl2::init().map_err(SdlError)?;
-    let video_subsystem = sdl_context.video().map_err(SdlError)?;
-    let audio_subsystem = sdl_context.audio().map_err(SdlError)?;
-    let mut event_pump = sdl_context.event_pump().map_err(SdlError)?;
+    let sdl_context = sdl2::init()
+        .map_err(SdlError)
+        .context("could not initialize SDL")?;
+    let video_subsystem = sdl_context
+        .video()
+        .map_err(SdlError)
+        .context("could not initialize SDL video subsystem")?;
+    let audio_subsystem = sdl_context
+        .audio()
+        .map_err(SdlError)
+        .context("could not initialize SDL audio subsystem")?;
+    let mut event_pump = sdl_context
+        .event_pump()
+        .map_err(SdlError)
+        .context("could not initialize SDL event loop")?;
     let mut display = Display::new(
         video_subsystem,
         display::WIDTH as u32 * scale,
@@ -379,7 +390,8 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
             },
             |spec| SquareWave::new(volume as f32 / 100.0, tone as f32, spec.freq),
         )
-        .map_err(SdlError)?;
+        .map_err(SdlError)
+        .context("could not initialize SDL audio playback")?;
 
     'main: loop {
         for event in event_pump.poll_iter() {
@@ -390,7 +402,13 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
             }
         }
 
-        interpreter.display_mut().refresh(|buf| display.draw(buf))?;
+        interpreter
+            .display_mut()
+            .refresh(|buf| display.draw(buf))
+            .context("could not refresh display window")?;
+        // The necessary context for any error in 'step' should be provided
+        // from the method itself; providing more context here would shadow the
+        // more useful errors defined there.
         interpreter.step()?;
         if interpreter.st() != 0 {
             device.resume();
