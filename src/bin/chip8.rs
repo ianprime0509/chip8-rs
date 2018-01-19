@@ -39,6 +39,7 @@ use clap::{App, Arg, ArgMatches};
 use env_logger::Builder;
 use failure::{Error, ResultExt};
 use log::LevelFilter;
+use sdl2::audio::{AudioCallback, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
@@ -203,6 +204,44 @@ impl Default for Controller {
     }
 }
 
+/// A simple square wave generator.
+///
+/// Thanks to the SDL2 crate's documentation for basically giving me this code
+/// :)
+struct SquareWave {
+    volume: f32,
+    phase: f32,
+    phase_inc: f32,
+}
+
+impl SquareWave {
+    /// Returns a square wave generator with the given volume and frequency (in
+    /// Hz).  The device's sample rate must be provided to calculate the actual
+    /// frequency of samples.
+    fn new(volume: f32, frequency: f32, sample_rate: i32) -> Self {
+        SquareWave {
+            volume,
+            phase: 0.0,
+            phase_inc: frequency / sample_rate as f32,
+        }
+    }
+}
+
+impl AudioCallback for SquareWave {
+    type Channel = f32;
+
+    fn callback(&mut self, out: &mut [f32]) {
+        for x in out.iter_mut() {
+            *x = if self.phase <= 0.5 {
+                self.volume
+            } else {
+                -self.volume
+            };
+            self.phase = (self.phase + self.phase_inc) % 1.0;
+        }
+    }
+}
+
 fn main() {
     let matches = App::new("Chip-8")
         .version(VERSION)
@@ -320,6 +359,7 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
 
     let sdl_context = sdl2::init().map_err(SdlError)?;
     let video_subsystem = sdl_context.video().map_err(SdlError)?;
+    let audio_subsystem = sdl_context.audio().map_err(SdlError)?;
     let mut event_pump = sdl_context.event_pump().map_err(SdlError)?;
     let mut display = Display::new(
         video_subsystem,
@@ -329,6 +369,17 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         Color::RGB(255, 255, 255),
     )?;
     let controller = Controller::new();
+    let device = audio_subsystem
+        .open_playback(
+            None,
+            &AudioSpecDesired {
+                freq: Some(44100),
+                channels: Some(1),
+                samples: None,
+            },
+            |spec| SquareWave::new(volume as f32 / 100.0, tone as f32, spec.freq),
+        )
+        .map_err(SdlError)?;
 
     'main: loop {
         for event in event_pump.poll_iter() {
@@ -341,6 +392,11 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
 
         interpreter.display_mut().refresh(|buf| display.draw(buf))?;
         interpreter.step()?;
+        if interpreter.st() != 0 {
+            device.resume();
+        } else {
+            device.pause();
+        }
         thread::yield_now();
     }
 
