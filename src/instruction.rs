@@ -94,11 +94,23 @@ impl Opcode {
         Register::from_u16((self.0 & 0x0F00) >> 8).unwrap()
     }
 
+    /// Sets the `Vx` register corresponding to this opcode, returning a new
+    /// opcode.
+    fn with_vx(self, vx: Register) -> Self {
+        Opcode(self.0 & 0xF0FF | ((vx as u16) << 8))
+    }
+
     /// Returns the `Vy` register corresponding to this opcode.
     ///
     /// This does not guarantee that the result is actually meaningful.
     fn vy(&self) -> Register {
         Register::from_u16((self.0 & 0x00F0) >> 4).unwrap()
+    }
+
+    /// Sets the `Vy` register corresponding to this opcode, returning a new
+    /// opcode.
+    fn with_vy(self, vy: Register) -> Self {
+        Opcode(self.0 & 0xFF0F | ((vy as u16) << 4))
     }
 
     /// Returns the `nibble` corresponding to this opcode.
@@ -108,11 +120,21 @@ impl Opcode {
         self.0 as u8 & 0xF
     }
 
+    /// Sets the `nibble` corresponding to this opcode, returning a new opcode.
+    fn with_nibble(self, nibble: u8) -> Self {
+        Opcode(self.0 & 0xFFF0 | (nibble & 0xF) as u16)
+    }
+
     /// Returns the `byte` corresponding to this opcode.
     ///
     /// This does not guarantee that the result is actually meaningful.
     fn byte(&self) -> u8 {
         self.0 as u8
+    }
+
+    /// Sets the `byte` corresponding to this opcode, returning a new opcode.
+    fn with_byte(self, byte: u8) -> Self {
+        Opcode(self.0 & 0xFF00 | byte as u16)
     }
 
     /// Returns the `addr` corresponding to this opcode.
@@ -121,11 +143,70 @@ impl Opcode {
     fn addr(&self) -> Result<Address, AddressOutOfBoundsError> {
         Address::from_u16(self.0 & 0xFFF)
     }
+
+    /// Sets the `addr` corresponding to this opcode, returning a new opcode.
+    fn with_addr(self, addr: Address) -> Self {
+        Opcode(self.0 & 0xF000 | addr.addr() as u16)
+    }
 }
 
 impl fmt::Display for Opcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "#{:04X}", self.0)
+    }
+}
+
+impl From<Instruction> for Opcode {
+    fn from(instr: Instruction) -> Self {
+        use Instruction::*;
+
+        match instr {
+            Scd(n) => Opcode(0x00C0).with_nibble(n),
+            Cls => Opcode(0x00E0),
+            Ret => Opcode(0x00EE),
+            Scr => Opcode(0x00FB),
+            Scl => Opcode(0x00FC),
+            Exit => Opcode(0x00FD),
+            Low => Opcode(0x00FE),
+            High => Opcode(0x00FF),
+            Jp(addr) => Opcode(0x1000).with_addr(*addr),
+            Call(addr) => Opcode(0x2000).with_addr(*addr),
+            SeByte(vx, b) => Opcode(0x3000).with_vx(vx).with_byte(b),
+            SneByte(vx, b) => Opcode(0x4000).with_vx(vx).with_byte(b),
+            SeReg(vx, vy) => Opcode(0x5000).with_vx(vx).with_vy(vy),
+            LdByte(vx, b) => Opcode(0x6000).with_vx(vx).with_byte(b),
+            AddByte(vx, b) => Opcode(0x7000).with_vx(vx).with_byte(b),
+            LdReg(vx, vy) => Opcode(0x8000).with_vx(vx).with_vy(vy),
+            Or(vx, vy) => Opcode(0x8001).with_vx(vx).with_vy(vy),
+            And(vx, vy) => Opcode(0x8002).with_vx(vx).with_vy(vy),
+            Xor(vx, vy) => Opcode(0x8003).with_vx(vx).with_vy(vy),
+            AddReg(vx, vy) => Opcode(0x8004).with_vx(vx).with_vy(vy),
+            Sub(vx, vy) => Opcode(0x8005).with_vx(vx).with_vy(vy),
+            Shr(vx) => Opcode(0x8006).with_vx(vx),
+            ShrQuirk(vx, vy) => Opcode(0x8006).with_vx(vx).with_vy(vy),
+            Subn(vx, vy) => Opcode(0x8007).with_vx(vx).with_vy(vy),
+            Shl(vx) => Opcode(0x800E).with_vx(vx),
+            ShlQuirk(vx, vy) => Opcode(0x800E).with_vx(vx).with_vy(vy),
+            SneReg(vx, vy) => Opcode(0x9000).with_vx(vx).with_vy(vy),
+            LdI(addr) => Opcode(0xA000).with_addr(addr),
+            JpV0(addr) => Opcode(0xB000).with_addr(addr),
+            Rnd(vx, b) => Opcode(0xC000).with_vx(vx).with_byte(b),
+            Drw(vx, vy, n) => Opcode(0xD000).with_vx(vx).with_vy(vy).with_nibble(n),
+            Skp(vx) => Opcode(0xE09E).with_vx(vx),
+            Sknp(vx) => Opcode(0xE0A1).with_vx(vx),
+            LdRegDt(vx) => Opcode(0xF007).with_vx(vx),
+            LdKey(vx) => Opcode(0xF00A).with_vx(vx),
+            LdDtReg(vx) => Opcode(0xF015).with_vx(vx),
+            LdSt(vx) => Opcode(0xF018).with_vx(vx),
+            AddI(vx) => Opcode(0xF01E).with_vx(vx),
+            LdF(vx) => Opcode(0xF029).with_vx(vx),
+            LdHf(vx) => Opcode(0xF030).with_vx(vx),
+            LdB(vx) => Opcode(0xF033).with_vx(vx),
+            LdDerefIReg(vx) => Opcode(0xF055).with_vx(vx),
+            LdRegDerefI(vx) => Opcode(0xF065).with_vx(vx),
+            LdRReg(vx) => Opcode(0xF075).with_vx(vx),
+            LdRegR(vx) => Opcode(0xF085).with_vx(vx),
+        }
     }
 }
 
@@ -565,10 +646,10 @@ mod tests {
         ];
 
         for &(opcode, ref instr) in cases.iter() {
-            assert_eq!(
-                Instruction::from_opcode(Opcode(opcode), false).unwrap(),
-                *instr
-            );
+            let new_instr = Instruction::from_opcode(Opcode(opcode), false).unwrap();
+            assert_eq!(new_instr, *instr);
+            let new_opcode: Opcode = new_instr.into();
+            assert_eq!(new_opcode, Opcode(opcode));
         }
     }
 }
