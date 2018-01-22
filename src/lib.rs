@@ -24,6 +24,8 @@ extern crate failure;
 extern crate failure_derive;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate nom;
 extern crate num;
 extern crate rand;
 extern crate time;
@@ -35,11 +37,13 @@ pub const PROG_START: usize = 0x200;
 /// The maximum size of a Chip-8 program, in bytes.
 pub const PROG_SIZE: usize = MEM_SIZE - PROG_START;
 
+pub mod assembler;
 pub mod display;
 pub mod input;
 pub mod instruction;
 pub mod interpreter;
 mod timer;
 
-pub use instruction::{Address, AlignedAddress, Instruction, Opcode, Register};
+pub use instruction::{Address, AddressMisalignedError, AddressOutOfBoundsError, AlignedAddress,
+                      Instruction, Opcode, Register};
 pub use interpreter::Interpreter;
