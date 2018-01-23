@@ -18,14 +18,14 @@
 //! Main module stuff.
 
 #[macro_use]
+extern crate combine;
+#[macro_use]
 extern crate enum_primitive;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate nom;
 extern crate num;
 extern crate rand;
 extern crate time;

@@ -26,13 +26,15 @@ use std::default::Default;
 use std::fmt;
 use std::ops::{Add, AddAssign};
 
+use combine::Parser;
 use failure::{Backtrace, Error, Fail};
-use nom::IResult;
 
 use PROG_SIZE;
 use PROG_START;
 use Address;
 use AddressOutOfBoundsError;
+
+mod parse;
 
 /// An error resulting from an attempt to give a new value to a label.
 #[derive(Debug, Fail)]
@@ -44,6 +46,11 @@ pub struct LabelAlreadyDefinedError(String);
 #[derive(Debug, Fail)]
 #[fail(display = "more than one label found for the same statement")]
 pub struct TooManyLabelsError;
+
+/// An error produced during the first pass.
+#[derive(Debug, Fail)]
+#[fail(display = "in first pass: {}", _0)]
+pub struct FirstPassError(String);
 
 /// An error with an associated line number.
 #[derive(Debug)]
@@ -177,9 +184,9 @@ struct FirstPassInstruction {
     /// The program index where the instruction should be put.
     index: ProgramIndex,
     /// The operation name.
-    operation: Vec<u8>,
+    operation: String,
     /// The operands.
-    operands: Vec<Vec<u8>>,
+    operands: Vec<String>,
 }
 
 /// A Chip-8 assembler.
@@ -260,20 +267,16 @@ impl Assembler {
     /// The actual logic for `process_line` which returns a normal `Result<(),
     /// Error>`.
     fn process_line_inner(&mut self, line: &str) -> Result<(), Error> {
-        let line = line.as_bytes();
-        let parsed = match parse::line(line) {
-            IResult::Done(_, out) => out,
-            IResult::Error(e) => return Err(e.into()),
-            IResult::Incomplete(_) => {
-                unreachable!("the parser should never return an incomplete value")
-            }
-        };
+        let parsed = parse::line()
+            .parse(line)
+            .map_err(|e| FirstPassError(format!("{}", e)))?
+            .0;
 
         if let Some(lbl) = parsed.0 {
             if self.label.is_some() {
                 return Err(TooManyLabelsError.into());
             } else {
-                self.label = Some(String::from_utf8(lbl.to_vec())?);
+                self.label = Some(lbl);
             }
         }
         if let Some((operation, operands)) = parsed.1 {
@@ -299,26 +302,19 @@ impl Assembler {
     /// associated label (if present).
     fn first_pass_instruction(
         &mut self,
-        operation: &[u8],
-        operands: Vec<&[u8]>,
+        operation: String,
+        operands: Vec<String>,
     ) -> Result<(), Error> {
-        let operation = operation.to_ascii_uppercase();
-        let operands = operands.into_iter().map(|s| s.to_vec()).collect::<Vec<_>>();
-
-        match operation.clone().as_slice() {
-            b"DB" => {
-                self.add_first_pass_instruction(operation, operands)?;
-                self.index += 1;
-            }
-            b"DW" => {
-                self.add_first_pass_instruction(operation, operands)?;
-                self.index += 2;
-            }
-            _ => {
-                self.index.align();
-                self.add_first_pass_instruction(operation, operands)?;
-                self.index += 2;
-            }
+        if operation.eq_ignore_ascii_case("DB") {
+            self.add_first_pass_instruction(operation, operands)?;
+            self.index += 1;
+        } else if operation.eq_ignore_ascii_case("DW") {
+            self.add_first_pass_instruction(operation, operands)?;
+            self.index += 2;
+        } else {
+            self.index.align();
+            self.add_first_pass_instruction(operation, operands)?;
+            self.index += 2;
         }
 
         Ok(())
@@ -331,8 +327,8 @@ impl Assembler {
     /// the assembler, and the current label will also be processed.
     fn add_first_pass_instruction(
         &mut self,
-        operation: Vec<u8>,
-        operands: Vec<Vec<u8>>,
+        operation: String,
+        operands: Vec<String>,
     ) -> Result<(), Error> {
         self.instructions.push_back(FirstPassInstruction {
             line: self.line,
@@ -340,7 +336,7 @@ impl Assembler {
             operation,
             operands,
         });
-        if let Some(lbl) = self.label.clone() {
+        if let Some(lbl) = self.label.take() {
             let addr = self.index.address()?.addr();
             self.define_label(&lbl, addr as u16)?;
             self.label = None;
@@ -348,59 +344,4 @@ impl Assembler {
 
         Ok(())
     }
-}
-
-mod parse {
-    //! Parsing functions for the assembler.
-
-    use nom::{alpha, alphanumeric};
-
-    /// Matches the first character in an identifier.
-    named!(ident_start, alt!(alpha | tag!("_")));
-
-    /// Matches any character but the first in an identifier.
-    named!(ident_inner, alt!(alphanumeric | tag!("_")));
-
-    /// Parses an identifier.
-    named!(
-        ident,
-        recognize!(preceded!(ident_start, many0!(ident_inner)))
-    );
-
-    /// Parses a label.
-    named!(
-        label,
-        complete!(do_parse!(name: ident >> tag!(":") >> (name)))
-    );
-
-    /// Parses a list of operands.
-    named!(
-        operands<Vec<&[u8]>>,
-        map!(
-            opt!(ws!(separated_list_complete!(
-                tag!(","),
-                take_while!(|b| b != b',' && b != b';')
-            ))),
-            |opt| opt.unwrap_or(Vec::new())
-        )
-    );
-
-    /// Parses an instruction (operation and operands).
-    named!(
-        instruction<(&[u8], Vec<&[u8]>)>,
-        do_parse!(operation: ident >> operands: operands >> (operation, operands))
-    );
-
-    /// Parses a line.
-    ///
-    /// The return tuple will contain an optional label name and an optional
-    /// instruction, where the instruction consists of the operation name and a
-    /// vector of operands.
-    named!(
-        pub line<(Option<&[u8]>, Option<(&[u8], Vec<&[u8]>)>)>,
-        ws!(do_parse!(
-            label: opt!(label) >> instruction: opt!(instruction) >> alt!(tag!(";") | eof!())
-                >> (label, instruction)
-        ))
-    );
 }
