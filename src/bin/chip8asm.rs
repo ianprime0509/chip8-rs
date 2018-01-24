@@ -42,6 +42,7 @@ fn run() -> Result<(), Error> {
             break;
         }
         assembler.process_line(&s)?;
+        assembler.emit()?;
     }
 
     Ok(())

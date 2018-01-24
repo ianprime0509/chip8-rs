@@ -43,6 +43,7 @@ pub mod input;
 pub mod instruction;
 pub mod interpreter;
 mod timer;
+mod util;
 
 pub use instruction::{Address, AddressMisalignedError, AddressOutOfBoundsError, AlignedAddress,
                       Instruction, Opcode, Register};

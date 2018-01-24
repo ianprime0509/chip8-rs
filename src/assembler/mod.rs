@@ -29,10 +29,8 @@ use std::ops::{Add, AddAssign};
 use combine::Parser;
 use failure::{Backtrace, Error, Fail};
 
-use PROG_SIZE;
-use PROG_START;
-use Address;
-use AddressOutOfBoundsError;
+use {Address, AddressOutOfBoundsError, Instruction, PROG_SIZE, PROG_START};
+use util;
 
 mod parse;
 
@@ -189,6 +187,22 @@ struct FirstPassInstruction {
     operands: Vec<String>,
 }
 
+impl FirstPassInstruction {
+    /// Attempts to compile this instruction into an `Instruction`.
+    ///
+    /// If this fails, the returned error will have the line number which was
+    /// stored in this instance.
+    pub fn compile(self) -> Result<Instruction, ErrorWithLine> {
+        let line = self.line;
+        self.compile_inner()
+            .map_err(|e| ErrorWithLine { line, inner: e })
+    }
+
+    /// The actual logic for `compile`, but without a line number on the error
+    /// (for convenience).
+    fn compile_inner(self) -> Result<Instruction, Error> {}
+}
+
 /// A Chip-8 assembler.
 ///
 /// This is a pretty straight-forward two-pass assembler: the first pass goes
@@ -252,6 +266,25 @@ impl Assembler {
         }
     }
 
+    /// Performs the second pass on all instructions in the queue, emitting the
+    /// resulting opcodes into the program buffer.
+    pub fn emit(&mut self) -> Result<(), ErrorWithLine> {
+        for ins in self.instructions.drain(..) {
+            for operand in &ins.operands {
+                println!("Evaluating '{}'", operand);
+                println!(
+                    "Result: {}",
+                    parse::eval(&operand, &self.label_table).map_err(|e| ErrorWithLine {
+                        line: ins.line,
+                        inner: e,
+                    })?
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Performs the first pass on the given line.
     pub fn process_line(&mut self, line: &str) -> Result<(), ErrorWithLine> {
         self.process_line_inner(line).map_err(|e| ErrorWithLine {
@@ -259,8 +292,6 @@ impl Assembler {
             inner: e,
         })?;
         self.line += 1;
-        println!("{:?}", self.instructions);
-        println!("{:?}", self.label_table);
         Ok(())
     }
 
@@ -269,7 +300,7 @@ impl Assembler {
     fn process_line_inner(&mut self, line: &str) -> Result<(), Error> {
         let parsed = parse::line()
             .parse(line)
-            .map_err(|e| FirstPassError(format!("{}", e)))?
+            .map_err(|e| FirstPassError(util::format_parse_error(&e)))?
             .0;
 
         if let Some(lbl) = parsed.0 {
