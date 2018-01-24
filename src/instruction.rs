@@ -28,6 +28,7 @@
 //! with at a lower level.
 
 use std::fmt;
+use std::str::FromStr;
 use std::ops::Add;
 use std::ops::Deref;
 
@@ -40,6 +41,7 @@ use MEM_SIZE;
 #[derive(Debug, Fail, PartialEq, Eq)]
 #[fail(display = "address out of bounds: {:#04X}", _0)]
 pub struct AddressOutOfBoundsError(pub usize);
+
 /// An error resulting from a misaligned address.
 #[derive(Debug, Fail, PartialEq, Eq)]
 #[fail(display = "misaligned address: {:#04X}", _0)]
@@ -49,6 +51,11 @@ pub struct AddressMisalignedError(pub usize);
 #[derive(Debug, Fail, PartialEq, Eq)]
 #[fail(display = "invalid opcode: {}", _0)]
 struct InvalidOpcodeError(Opcode);
+
+/// An error resulting from trying to parse a non-register as a register.
+#[derive(Debug, Fail)]
+#[fail(display = "'{}' is not a register", _0)]
+pub struct NotARegisterError(String);
 
 enum_from_primitive! {
 /// A Chip-8 register.
@@ -71,6 +78,28 @@ pub enum Register {
     VE,
     VF,
 }
+}
+
+impl FromStr for Register {
+    type Err = NotARegisterError;
+
+    fn from_str(s: &str) -> Result<Self, NotARegisterError> {
+        let mut chars = s.chars().map(|c| c.to_ascii_uppercase());
+        if chars.next() != Some('V') {
+            return Err(NotARegisterError(s.to_owned()));
+        }
+        if let Some(c) = chars.next() {
+            if '0' <= c && c <= '9' {
+                Ok(Register::from_u32(c as u32 - '0' as u32).unwrap())
+            } else if 'A' <= c && c <= 'F' {
+                Ok(Register::from_u32(c as u32 - 'A' as u32 + 10).unwrap())
+            } else {
+                Err(NotARegisterError(s.to_owned()))
+            }
+        } else {
+            Err(NotARegisterError(s.to_owned()))
+        }
+    }
 }
 
 impl fmt::Display for Register {
@@ -277,7 +306,7 @@ impl Add<usize> for Address {
 
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:#03X}", self.0)
+        write!(f, "#{:03X}", self.0)
     }
 }
 
@@ -288,6 +317,13 @@ impl fmt::Display for Address {
 /// use as a program counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AlignedAddress(Address);
+
+impl AlignedAddress {
+    /// Converts the given `usize` to an `AlignedAddress` if it is possible.
+    pub fn from_usize(addr: usize) -> Result<AlignedAddress, Error> {
+        Ok(Address::from_usize(addr)?.aligned()?)
+    }
+}
 
 impl Add<usize> for AlignedAddress {
     type Output = Result<Self, Error>;

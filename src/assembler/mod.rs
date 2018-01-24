@@ -29,7 +29,7 @@ use std::ops::{Add, AddAssign};
 use combine::Parser;
 use failure::{Backtrace, Error, Fail};
 
-use {Address, AddressOutOfBoundsError, Instruction, PROG_SIZE, PROG_START};
+use {Address, AddressOutOfBoundsError, AlignedAddress, Instruction, PROG_SIZE, PROG_START};
 use util;
 
 mod parse;
@@ -49,6 +49,34 @@ pub struct TooManyLabelsError;
 #[derive(Debug, Fail)]
 #[fail(display = "in first pass: {}", _0)]
 pub struct FirstPassError(String);
+
+/// An error resulting from being given the wrong number of operands for an
+/// operation.
+#[derive(Debug, Fail)]
+#[fail(display = "wrong number of operands to '{}': expected {}, got {}", operation, expected, got)]
+pub struct WrongOperandsError {
+    pub operation: String,
+    pub expected: usize,
+    pub got: usize,
+}
+
+/// Fails immediately with an error if the wrong number of operands was given.
+macro_rules! expect_operands {
+    ($op:expr, $expected:expr, $got:expr) => {
+        if $expected != $got {
+            return Err(WrongOperandsError {
+                operation: $op.to_owned(),
+                expected: $expected,
+                got: $got
+            }.into());
+        }
+    }
+}
+
+/// An error resulting from the use of an unknown operation.
+#[derive(Debug, Fail)]
+#[fail(display = "unknown operation '{}'", _0)]
+pub struct UnknownOperationError(String);
 
 /// An error with an associated line number.
 #[derive(Debug)]
@@ -192,15 +220,185 @@ impl FirstPassInstruction {
     ///
     /// If this fails, the returned error will have the line number which was
     /// stored in this instance.
-    pub fn compile(self) -> Result<Instruction, ErrorWithLine> {
+    pub fn compile(self, ltable: &HashMap<String, u16>) -> Result<Instruction, ErrorWithLine> {
         let line = self.line;
-        self.compile_inner()
+        self.compile_inner(ltable)
             .map_err(|e| ErrorWithLine { line, inner: e })
     }
 
     /// The actual logic for `compile`, but without a line number on the error
     /// (for convenience).
-    fn compile_inner(self) -> Result<Instruction, Error> {}
+    fn compile_inner(mut self, ltable: &HashMap<String, u16>) -> Result<Instruction, Error> {
+        use Instruction::*;
+        use self::parse::eval;
+
+        self.operation.make_ascii_uppercase();
+        let op = self.operation.as_str();
+        let ops = self.operands;
+        let lt = ltable;
+
+        Ok(match op {
+            "SCD" => {
+                expect_operands!(op, 1, ops.len());
+                Scd(eval(&ops[0], lt)? as u8)
+            }
+            "CLS" => {
+                expect_operands!(op, 0, ops.len());
+                Cls
+            }
+            "RET" => {
+                expect_operands!(op, 0, ops.len());
+                Ret
+            }
+            "SCR" => {
+                expect_operands!(op, 0, ops.len());
+                Scr
+            }
+            "SCL" => {
+                expect_operands!(op, 0, ops.len());
+                Scl
+            }
+            "EXIT" => {
+                expect_operands!(op, 0, ops.len());
+                Exit
+            }
+            "LOW" => {
+                expect_operands!(op, 0, ops.len());
+                Low
+            }
+            "HIGH" => {
+                expect_operands!(op, 0, ops.len());
+                High
+            }
+            "JP" => {
+                if ops[0].eq_ignore_ascii_case("V0") {
+                    expect_operands!("JP V0", 1, ops.len() - 1);
+                    JpV0(Address::from_u16(eval(&ops[1], lt)?)?)
+                } else {
+                    expect_operands!(op, 1, ops.len());
+                    Jp(AlignedAddress::from_usize(eval(&ops[0], lt)? as usize)?)
+                }
+            }
+            "CALL" => {
+                expect_operands!(op, 1, ops.len());
+                Call(AlignedAddress::from_usize(eval(&ops[0], lt)? as usize)?)
+            }
+            "SE" => {
+                expect_operands!(op, 2, ops.len());
+                if let Ok(vy) = ops[1].parse() {
+                    SeReg(ops[0].parse()?, vy)
+                } else {
+                    SeByte(ops[0].parse()?, eval(&ops[1], lt)? as u8)
+                }
+            }
+            "SNE" => {
+                expect_operands!(op, 2, ops.len());
+                if let Ok(vy) = ops[1].parse() {
+                    SneReg(ops[0].parse()?, vy)
+                } else {
+                    SneByte(ops[0].parse()?, eval(&ops[1], lt)? as u8)
+                }
+            }
+            "LD" => {
+                expect_operands!(op, 2, ops.len());
+                // We have a lot of overloads here, and we need to check the
+                // most specific ones first.  Let's start by checking the ones
+                // with special first arguments, then check the ones with
+                // special second arguments, and then check the register/byte
+                // variants.
+                if ops[0].eq_ignore_ascii_case("I") {
+                    LdI(Address::from_u16(eval(&ops[1], lt)?)?)
+                } else if ops[0].eq_ignore_ascii_case("DT") {
+                    LdDtReg(ops[1].parse()?)
+                } else if ops[0].eq_ignore_ascii_case("ST") {
+                    LdSt(ops[1].parse()?)
+                } else if ops[0].eq_ignore_ascii_case("F") {
+                    LdF(ops[1].parse()?)
+                } else if ops[0].eq_ignore_ascii_case("HF") {
+                    LdHf(ops[1].parse()?)
+                } else if ops[0].eq_ignore_ascii_case("B") {
+                    LdB(ops[1].parse()?)
+                } else if ops[0].eq_ignore_ascii_case("[I]") {
+                    LdDerefIReg(ops[1].parse()?)
+                } else if ops[0].eq_ignore_ascii_case("R") {
+                    LdRReg(ops[1].parse()?)
+                } else if ops[1].eq_ignore_ascii_case("DT") {
+                    LdRegDt(ops[0].parse()?)
+                } else if ops[1].eq_ignore_ascii_case("[I]") {
+                    LdRegDerefI(ops[0].parse()?)
+                } else if ops[1].eq_ignore_ascii_case("R") {
+                    LdRegR(ops[0].parse()?)
+                } else if let Ok(vy) = ops[1].parse() {
+                    LdReg(ops[0].parse()?, vy)
+                } else {
+                    LdByte(ops[0].parse()?, eval(&ops[1], lt)? as u8)
+                }
+            }
+            "ADD" => {
+                expect_operands!(op, 2, ops.len());
+                if ops[0].eq_ignore_ascii_case("I") {
+                    AddI(ops[1].parse()?)
+                } else if let Ok(vy) = ops[1].parse() {
+                    AddReg(ops[0].parse()?, vy)
+                } else {
+                    AddByte(ops[0].parse()?, eval(&ops[1], lt)? as u8)
+                }
+            }
+            "OR" => {
+                expect_operands!(op, 2, ops.len());
+                Or(ops[0].parse()?, ops[1].parse()?)
+            }
+            "AND" => {
+                expect_operands!(op, 2, ops.len());
+                And(ops[0].parse()?, ops[1].parse()?)
+            }
+            "XOR" => {
+                expect_operands!(op, 2, ops.len());
+                Xor(ops[0].parse()?, ops[1].parse()?)
+            }
+            "SUB" => {
+                expect_operands!(op, 2, ops.len());
+                Sub(ops[0].parse()?, ops[1].parse()?)
+            }
+            "SHR" => {
+                if ops.len() == 2 {
+                    ShrQuirk(ops[0].parse()?, ops[1].parse()?)
+                } else {
+                    expect_operands!(op, 1, ops.len());
+                    Shr(ops[0].parse()?)
+                }
+            }
+            "SUBN" => {
+                expect_operands!(op, 2, ops.len());
+                Subn(ops[0].parse()?, ops[1].parse()?)
+            }
+            "SHL" => {
+                if ops.len() == 2 {
+                    ShlQuirk(ops[0].parse()?, ops[1].parse()?)
+                } else {
+                    expect_operands!(op, 1, ops.len());
+                    Shl(ops[0].parse()?)
+                }
+            }
+            "RND" => {
+                expect_operands!(op, 2, ops.len());
+                Rnd(ops[0].parse()?, eval(&ops[1], lt)? as u8)
+            }
+            "DRW" => {
+                expect_operands!(op, 3, ops.len());
+                Drw(ops[0].parse()?, ops[1].parse()?, eval(&ops[2], lt)? as u8)
+            }
+            "SKP" => {
+                expect_operands!(op, 1, ops.len());
+                Skp(ops[0].parse()?)
+            }
+            "SKNP" => {
+                expect_operands!(op, 1, ops.len());
+                Sknp(ops[0].parse()?)
+            }
+            op => return Err(UnknownOperationError(op.to_owned()).into()),
+        })
+    }
 }
 
 /// A Chip-8 assembler.
@@ -270,16 +468,8 @@ impl Assembler {
     /// resulting opcodes into the program buffer.
     pub fn emit(&mut self) -> Result<(), ErrorWithLine> {
         for ins in self.instructions.drain(..) {
-            for operand in &ins.operands {
-                println!("Evaluating '{}'", operand);
-                println!(
-                    "Result: {}",
-                    parse::eval(&operand, &self.label_table).map_err(|e| ErrorWithLine {
-                        line: ins.line,
-                        inner: e,
-                    })?
-                );
-            }
+            let instr = ins.compile(&self.label_table)?;
+            println!("{}", instr);
         }
 
         Ok(())

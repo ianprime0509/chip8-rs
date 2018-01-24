@@ -67,11 +67,9 @@ parser!{
     {
         satisfy(is_ident_start)
             .and(many(satisfy(is_ident_inner)))
-            .map(|(c, s): (char, String)| {
-                let mut ident = String::with_capacity(s.len() + 1);
-                ident.push(c);
-                ident.push_str(&s);
-                ident
+            .map(|(c, mut s): (char, String)| {
+                s.insert(0, c);
+                s
             })
             .expected("identifier")
     }
@@ -82,16 +80,15 @@ parser!{
     pub fn line[I]()(I) -> (Option<String>, Option<(String, Vec<String>)>)
     where [I: Stream<Item = char>]
     {
-        let label = ident().skip(token(':'));
-        let operation = ident();
-        let operand = many(satisfy(|c| c != ',' && c != ';'));
-        let operands = sep_by(operand, token(','));
-        let instruction = operation
+        let label = ident().skip(token(':')).skip(spaces());
+        let operation = ident().skip(spaces());
+        let operand = many1(satisfy(|c| c != ',' && c != ';'))
             .skip(spaces())
-            .and(operands);
+            .map(|s: String| s.trim().to_owned());
+        let operands = sep_by(operand, token(',').skip(spaces())).skip(spaces());
+        let instruction = operation.and(operands);
 
-        optional(try(label))
-            .skip(spaces())
+        spaces().with(optional(try(label)))
             .and(optional(try(instruction)))
     }
 }
