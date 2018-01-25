@@ -24,12 +24,13 @@
 use std::collections::{HashMap, VecDeque};
 use std::default::Default;
 use std::fmt;
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::ops::{Add, AddAssign};
 
 use combine::Parser;
-use failure::{Backtrace, Error, Fail};
+use failure::{Backtrace, Error, Fail, ResultExt};
 
-use {Address, AddressOutOfBoundsError, AlignedAddress, Instruction, PROG_SIZE, PROG_START};
+use {Address, AddressOutOfBoundsError, AlignedAddress, Instruction, Opcode, PROG_SIZE, PROG_START};
 use util;
 
 mod parse;
@@ -271,7 +272,7 @@ impl FirstPassInstruction {
                 High
             }
             "JP" => {
-                if ops[0].eq_ignore_ascii_case("V0") {
+                if !ops.is_empty() && ops[0].eq_ignore_ascii_case("V0") {
                     expect_operands!("JP V0", 1, ops.len() - 1);
                     JpV0(Address::from_u16(eval(&ops[1], lt)?)?)
                 } else {
@@ -464,19 +465,84 @@ impl Assembler {
         }
     }
 
+    /// Assembles the given input program, writing the result (as binary data)
+    /// to the given output.
+    ///
+    /// This consumes the assembler, because using the same `Assembler` for two
+    /// different programs would have unexpected results (it would be
+    /// equivalent to assembling the concatenation of the two inputs; if this
+    /// is desired, you can just concatenate the inputs before passing them to
+    /// this function).
+    pub fn assemble<R: Read, W: Write>(
+        mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), Error> {
+        let input = BufReader::new(input);
+        for line in input.lines() {
+            self.process_line(&line?)?;
+        }
+
+        self.emit()?;
+        // We only want to output the data in the program buffer that actually
+        // matters, and not the empty data at the end.  Thus, we only output up
+        // through the last non-zero byte in the program buffer.
+        let last = self.program
+            .iter()
+            .rposition(|&b| b != 0)
+            .map(|pos| pos + 1)
+            .unwrap_or(self.program.len());
+        let mut output = BufWriter::new(output);
+        output.write_all(&self.program[..last])?;
+
+        Ok(())
+    }
+
     /// Performs the second pass on all instructions in the queue, emitting the
     /// resulting opcodes into the program buffer.
-    pub fn emit(&mut self) -> Result<(), ErrorWithLine> {
+    fn emit(&mut self) -> Result<(), ErrorWithLine> {
+        // It would be nice to do this with an iterator instead of manually
+        // creating the `opcodes` queue, but the compiler complains if I do so,
+        // since `self.label_table` is borrowed inside the loop.
+        let mut opcodes = VecDeque::new();
         for ins in self.instructions.drain(..) {
+            let index = ins.index;
+            let line = ins.line;
             let instr = ins.compile(&self.label_table)?;
-            println!("{}", instr);
+            println!("Assembled {}", instr);
+            opcodes.push_back((index, line, instr));
+        }
+
+        // Having a separate loop to process all the opcodes is necessary to
+        // satisfy the borrow checker; we can't insert an instruction while
+        // we're draining the instructions queue, because both operations
+        // require a mutable borrow of `self`.
+        for (index, line, instr) in opcodes.drain(..) {
+            self.insert_opcode(instr.into(), index)
+                .context("resulting program is too big")
+                .map_err(|e| ErrorWithLine {
+                    line,
+                    inner: e.into(),
+                })?;
         }
 
         Ok(())
     }
 
+    /// Inserts the given opcode at the given program location.
+    fn insert_opcode(
+        &mut self,
+        opcode: Opcode,
+        index: ProgramIndex,
+    ) -> Result<(), ProgramIndexOutOfBoundsError> {
+        let (b1, b2) = opcode.bytes();
+        self.program[index.index()?] = b1;
+        self.program[(index + 1).index()?] = b2;
+        Ok(())
+    }
+
     /// Performs the first pass on the given line.
-    pub fn process_line(&mut self, line: &str) -> Result<(), ErrorWithLine> {
+    fn process_line(&mut self, line: &str) -> Result<(), ErrorWithLine> {
         self.process_line_inner(line).map_err(|e| ErrorWithLine {
             line: self.line,
             inner: e,

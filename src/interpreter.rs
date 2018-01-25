@@ -282,9 +282,9 @@ impl Interpreter {
 
     /// Returns the opcode at the program counter.
     pub fn current_opcode(&self) -> Opcode {
-        let high = self.mem[self.pc.addr()] as u16;
-        let low = self.mem[self.pc.addr() + 1] as u16;
-        Opcode(high << 8 | low)
+        let high = self.mem[self.pc.addr()];
+        let low = self.mem[self.pc.addr() + 1];
+        Opcode::from_bytes(high, low)
     }
 
     /// Performs a single execution step.

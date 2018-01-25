@@ -116,6 +116,16 @@ impl fmt::Display for Register {
 pub struct Opcode(pub u16);
 
 impl Opcode {
+    /// Returns the opcode corresponding to the two bytes given in big-endian order.
+    pub fn from_bytes(b1: u8, b2: u8) -> Self {
+        Opcode(((b1 as u16) << 8) | b2 as u16)
+    }
+
+    /// Returns a tuple containing the bytes of this opcode, in big-endian order.
+    pub fn bytes(&self) -> (u8, u8) {
+        ((self.0 >> 8) as u8, self.0 as u8)
+    }
+
     /// Returns the `Vx` register corresponding to this opcode.
     ///
     /// This does not guarantee that the result is actually meaningful.

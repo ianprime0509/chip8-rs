@@ -45,6 +45,7 @@ pub mod interpreter;
 mod timer;
 mod util;
 
+pub use assembler::Assembler;
 pub use instruction::{Address, AddressMisalignedError, AddressOutOfBoundsError, AlignedAddress,
                       Instruction, Opcode, Register};
 pub use interpreter::Interpreter;

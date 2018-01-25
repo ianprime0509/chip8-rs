@@ -36,7 +36,6 @@ use std::process;
 use std::thread;
 
 use clap::{App, Arg, ArgMatches};
-use env_logger::Builder;
 use failure::{Error, ResultExt};
 use log::LevelFilter;
 use sdl2::audio::{AudioCallback, AudioSpecDesired};
@@ -243,7 +242,7 @@ impl AudioCallback for SquareWave {
 }
 
 fn main() {
-    let matches = App::new("Chip-8")
+    let matches = App::new("chip8")
         .version(VERSION)
         .author("Ian Johnson <ianprime0509@gmail.com>")
         .about("A Chip-8/Super-Chip interpreter")
@@ -314,7 +313,7 @@ fn main() {
         _ => LevelFilter::Trace,
     };
 
-    Builder::new()
+    env_logger::Builder::new()
         .filter(None, filter)
         .format(|buf, record| writeln!(buf, "{}: {}", record.level(), record.args()))
         .init();
@@ -348,7 +347,6 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         .unwrap_or(Ok(10))
         .context("invalid volume argument")?;
 
-    println!("scale is {}; tone is {}; volume is {}", scale, tone, volume);
     let filename = matches.value_of("FILE").unwrap();
     let mut input =
         File::open(filename).with_context(|_| format!("could not open file '{}'", filename))?;
