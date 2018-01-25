@@ -137,7 +137,7 @@ parser!{
     {
         choice!(choice!(number(), variable(ltable)),
                 between(token('(').skip(spaces()),
-                        token(')'),
+                        token(')').skip(spaces()),
                         expr(ltable)))
         .skip(spaces())
         .expected("number, label name or '('")
@@ -251,8 +251,19 @@ parser!{
     fn expr['a, I](ltable: &'a HashMap<String, u16>)(I) -> u16
     where [I: Stream<Item = char>]
     {
-        spaces().with(chainl1(or_op(ltable), token('|').skip(spaces())
-                              .map(|_| |l: u16, r: u16| l | r)))
+        chainl1(or_op(ltable), token('|').skip(spaces())
+                .map(|_| |l: u16, r: u16| l | r))
+            .skip(spaces())
+            .expected("expression")
+    }
+}
+
+/// Parses a top-level expression (a complete operand).
+parser!{
+    fn operand['a, I](ltable: &'a HashMap<String, u16>)(I) -> u16
+    where [I: Stream<Item = char>]
+    {
+        spaces().with(expr(ltable))
             .skip(spaces())
             .skip(eof().expected("end of expression"))
     }
@@ -260,7 +271,7 @@ parser!{
 
 /// Evaluates the given expression, returning its value.
 pub fn eval(expression: &str, ltable: &HashMap<String, u16>) -> Result<u16, Error> {
-    expr(ltable)
+    operand(ltable)
         .parse(expression)
         .map(|x| x.0)
         .map_err(|e| ExpressionEvalError(util::format_parse_error(&e)).into())

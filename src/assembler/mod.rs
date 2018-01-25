@@ -325,6 +325,8 @@ impl FirstPassInstruction {
                     LdRReg(ops[1].parse()?)
                 } else if ops[1].eq_ignore_ascii_case("DT") {
                     LdRegDt(ops[0].parse()?)
+                } else if ops[1].eq_ignore_ascii_case("K") {
+                    LdKey(ops[0].parse()?)
                 } else if ops[1].eq_ignore_ascii_case("[I]") {
                     LdRegDerefI(ops[0].parse()?)
                 } else if ops[1].eq_ignore_ascii_case("R") {
@@ -630,5 +632,98 @@ impl Assembler {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {Address, AlignedAddress, Assembler};
+
+    /// Tests basic instruction assembly.
+    ///
+    /// This tests whether input strings get assembled down to the correct
+    /// instructions, where the input strings may have strange variations in
+    /// case (etc.) and other minor bits that might make them more difficult to
+    /// assemble.
+    #[test]
+    fn single_instructions() {
+        use Instruction::*;
+        use Register::*;
+
+        let cases = vec![
+            ("scd #A", Scd(0xA)),
+            ("    cLs    \t\t   ", Cls),
+            ("\tRET", Ret),
+            ("SCR", Scr),
+            ("Scl", Scl),
+            ("EXIT  ; Exits the program", Exit),
+            ("  LOW", Low),
+            ("high\t", High),
+            (
+                "jp #200 + $10",
+                Jp(AlignedAddress::from_usize(0x200 + 0b10).unwrap()),
+            ),
+            (
+                "\tCaLL 301 * 2\t",
+                Call(AlignedAddress::from_usize(301 * 2).unwrap()),
+            ),
+            ("SE    vD   ,\t #45 > 2  ", SeByte(VD, 0x45 >> 2)),
+            ("\tSne   \tVa\t,\t  75 / 2\t", SneByte(VA, 75 / 2)),
+            ("se  v7, V8 ;; comments are fun ;;", SeReg(V7, V8)),
+            ("  LD  v2,  $10101 < 3;2", LdByte(V2, 0b10101 << 3)),
+            ("ADD  VC  ,255", AddByte(VC, 255)),
+            (" ld v8, V3;V4\t", LdReg(V8, V3)),
+            ("\tOR  V1, vF\t", Or(V1, VF)),
+            ("aND\tv0 ,\tv1", And(V0, V1)),
+            ("XoR   V8, va;", Xor(V8, VA)),
+            ("add  v7, v7;;;;;", AddReg(V7, V7)),
+            ("suB v8 ,V9", Sub(V8, V9)),
+            (" SHR v1", Shr(V1)),
+            ("   sHr v8, v0", ShrQuirk(V8, V0)),
+            ("SUBN V0, V0", Subn(V0, V0)),
+            ("SHL v9", Shl(V9)),
+            ("SHl v8, v2", ShlQuirk(V8, V2)),
+            ("sne v6, ve", SneReg(V6, VE)),
+            (
+                "LD  i \t,  #201;#201",
+                LdI(Address::from_usize(0x201).unwrap()),
+            ),
+            (
+                "jp   V0 , #300\t",
+                JpV0(Address::from_usize(0x300).unwrap()),
+            ),
+            ("RnD  v9 , - (1) \t", Rnd(V9, 255)),
+            ("\tDRW\tVA\t,\tVB\t,\t$101\t;", Drw(VA, VB, 0b101)),
+            ("  skp  v8", Skp(V8)),
+            ("sKnP   v9", Sknp(V9)),
+            ("  ld  v9\t,\t dt;", LdRegDt(V9)),
+            ("  LD   VA , k", LdKey(VA)),
+            ("lD\tdT,\tV0", LdDtReg(V0)),
+            ("LD ST, V9", LdSt(V9)),
+            ("aDD  I , V7", AddI(V7)),
+            ("ld  f, v2", LdF(V2)),
+            ("ld  HF   , Va", LdHf(VA)),
+            ("LD B, V8", LdB(V8)),
+            ("LD [i] , v3", LdDerefIReg(V3)),
+            ("ld   vA, [I]\t;", LdRegDerefI(VA)),
+            ("ld  R,  v8", LdRReg(V8)),
+            ("Ld  v9 , r", LdRegR(V9)),
+        ];
+
+        let mut asm = Assembler::new();
+        for &(ref instr, _) in cases.iter() {
+            if let Err(e) = asm.process_line(instr) {
+                panic!("assembly of '{}' failed: {}", instr, e);
+            }
+        }
+
+        let ltable = asm.label_table.clone();
+        for (first_passed, (_, instr)) in asm.instructions.into_iter().zip(cases.into_iter()) {
+            let assembled = match first_passed.compile(&ltable) {
+                Ok(a) => a,
+                Err(e) => panic!("second pass of '{}' failed: {}", instr, e),
+            };
+            assert_eq!(assembled, instr);
+        }
     }
 }
