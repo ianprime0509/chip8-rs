@@ -61,6 +61,17 @@ fn is_ident_inner(c: char) -> bool {
     is_ident_start(c) || '0' <= c && c <= '9'
 }
 
+/// A line of a certain type (assignment or instruction).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Line {
+    /// An assignment statement, with the label name and operand (to be
+    /// evaluated).
+    Assignment(String, String),
+    /// An instruction, with an optional label and the instruction (with
+    /// operands).
+    Instruction(Option<String>, Option<(String, Vec<String>)>),
+}
+
 /// Parses an identifier.
 parser!{
     fn ident[I]()(I) -> String
@@ -76,23 +87,38 @@ parser!{
     }
 }
 
+/// Parses an operand to an instruction (or the body of an assignment).
+parser!{
+    pub fn operand[I]()(I) -> String
+    where [I: Stream<Item = char>]
+    {
+        many1(satisfy(|c| c != ',' && c != ';'))
+            .skip(spaces())
+            .map(|s: String| s.trim().to_owned())
+    }
+}
+
 /// Parses a line containing an (optional) label and an (optional) instruction.
 parser!{
-    pub fn line[I]()(I) -> (Option<String>, Option<(String, Vec<String>)>)
+    pub fn line[I]()(I) -> Line
     where [I: Stream<Item = char>]
     {
         let label = ident().skip(token(':')).skip(spaces());
         let operation = ident().skip(spaces());
-        let operand = many1(satisfy(|c| c != ',' && c != ';'))
-            .skip(spaces())
-            .map(|s: String| s.trim().to_owned());
-        let operands = sep_by(operand, token(',').skip(spaces())).skip(spaces());
+        let operands = sep_by(operand(), token(',').skip(spaces())).skip(spaces());
         let instruction = operation.and(operands);
         // A comment will just consume everything else on the line.
         let comment = token(';').and(many::<Vec<_>, _>(any()));
 
-        spaces().with(optional(try(label)))
+        let assignment = ident().skip(spaces())
+            .skip(token('=').skip(spaces()))
+            .and(operand())
+            .map(|(label, operand)| Line::Assignment(label, operand));
+        let line = optional(try(label))
             .and(optional(try(instruction)))
+            .map(|(label, instruction)| Line::Instruction(label, instruction));
+
+        spaces().with(try(assignment).or(line))
             .skip(optional(comment))
             .skip(eof())
     }
@@ -265,7 +291,7 @@ parser!{
 
 /// Parses a top-level expression (a complete operand).
 parser!{
-    fn operand['a, I](ltable: &'a HashMap<String, u16>)(I) -> u16
+    fn expr_top['a, I](ltable: &'a HashMap<String, u16>)(I) -> u16
     where [I: Stream<Item = char>]
     {
         spaces().with(expr(ltable))
@@ -276,7 +302,7 @@ parser!{
 
 /// Evaluates the given expression, returning its value.
 pub fn eval(expression: &str, ltable: &HashMap<String, u16>) -> Result<u16, Error> {
-    operand(ltable)
+    expr_top(ltable)
         .parse(expression)
         .map(|x| x.0)
         .map_err(|e| ExpressionEvalError(util::format_parse_error(&e)).into())
@@ -288,21 +314,22 @@ mod tests {
 
     use combine::Parser;
 
-    use super::eval;
-    use super::line;
+    use super::{eval, line, Line};
     use util::format_parse_error;
 
     /// Tests line parsing.
     #[test]
     fn parse_line() {
+        use self::Line::*;
+
         let cases = [
             (
                 "label_only:\t   \t ; a comment",
-                (Some("label_only".into()), None),
+                Instruction(Some("label_only".into()), None),
             ),
             (
                 "operation op1 , op2, op3 ; trick, ",
-                (
+                Instruction(
                     None,
                     Some((
                         "operation".into(),
@@ -312,7 +339,7 @@ mod tests {
             ),
             (
                 "label:  AND  op,op + 2   ,    op3  \t\t",
-                (
+                Instruction(
                     Some("label".into()),
                     Some((
                         "AND".into(),
@@ -320,8 +347,13 @@ mod tests {
                     )),
                 ),
             ),
-            ("     ;  nothing to see here!", (None, None)),
-            ("      ", (None, None)),
+            ("     ;  nothing to see here!", Instruction(None, None)),
+            ("", Instruction(None, None)),
+            ("label = 2 + 2", Assignment("label".into(), "2 + 2".into())),
+            (
+                "    \thi_there = 2 * 6 - 2  ; with a comment",
+                Assignment("hi_there".into(), "2 * 6 - 2".into()),
+            ),
         ];
 
         for &(input, ref expected) in cases.iter() {

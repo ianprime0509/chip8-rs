@@ -563,20 +563,30 @@ impl Assembler {
     /// The actual logic for `process_line` which returns a normal `Result<(),
     /// Error>`.
     fn process_line_inner(&mut self, line: &str) -> Result<(), Error> {
+        use self::parse::Line;
+
         let parsed = parse::line()
             .parse(line)
             .map_err(|e| FirstPassError(util::format_parse_error(&e)))?
             .0;
 
-        if let Some(lbl) = parsed.0 {
-            if self.label.is_some() {
-                return Err(TooManyLabelsError.into());
-            } else {
-                self.label = Some(lbl);
+        match parsed {
+            Line::Assignment(lbl, expr) => {
+                let value = parse::eval(&expr, &self.label_table)?;
+                self.define_label(&lbl, value)?;
             }
-        }
-        if let Some((operation, operands)) = parsed.1 {
-            self.first_pass_instruction(operation, operands)?;
+            Line::Instruction(lbl, instruction) => {
+                if let Some(lbl) = lbl {
+                    if self.label.is_some() {
+                        return Err(TooManyLabelsError.into());
+                    } else {
+                        self.label = Some(lbl);
+                    }
+                }
+                if let Some((operation, operands)) = instruction {
+                    self.first_pass_instruction(operation, operands)?;
+                }
+            }
         }
 
         Ok(())
@@ -722,7 +732,7 @@ mod tests {
         let mut asm = Assembler::new();
         for &(ref instr, _) in cases.iter() {
             if let Err(e) = asm.process_line(instr) {
-                panic!("assembly of '{}' failed: {}", instr, e);
+                panic!("assembly of {:?} failed: {}", instr, e);
             }
         }
 
@@ -730,7 +740,7 @@ mod tests {
         for (first_passed, (_, instr)) in asm.instructions.into_iter().zip(cases.into_iter()) {
             let assembled = match first_passed.compile(&ltable) {
                 Ok(a) => a,
-                Err(e) => panic!("second pass of '{}' failed: {}", instr, e),
+                Err(e) => panic!("second pass of {:?} failed: {}", instr, e),
             };
             assert_eq!(assembled, instr);
         }
@@ -755,5 +765,29 @@ lbl3:   CALL lbl3";
         assert_eq!(Opcode::from_bytes(output[0], output[1]), Opcode(0x1202));
         assert_eq!(Opcode::from_bytes(output[2], output[3]), Opcode(0x1200));
         assert_eq!(Opcode::from_bytes(output[4], output[5]), Opcode(0x2204));
+    }
+
+    /// Tests assignment statements.
+    #[test]
+    fn assignment() {
+        // The test cases, in the format `(input line, label, value)`.
+        let cases = [
+            ("label = 5", "label", 5),
+            ("     \tspacing\t=\t  70 ; comment", "spacing", 70),
+            ("  expr =    5 + 8", "expr", 5 + 8),
+            ("   a_test    =   expr + 7 ; wow", "a_test", 5 + 8 + 7),
+        ];
+        let mut asm = Assembler::new();
+
+        for &(input, label, val) in &cases {
+            if let Err(e) = asm.process_line(input) {
+                panic!("assembly of {:?} failed: {}", input, e);
+            }
+            let assigned = match asm.label_table.get(label) {
+                Some(&val) => val,
+                None => panic!("label '{}' was not assigned", label),
+            };
+            assert_eq!(assigned, val, "incorrect processing of {:?}", input);
+        }
     }
 }
