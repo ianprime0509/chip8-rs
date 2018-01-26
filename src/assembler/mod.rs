@@ -61,16 +61,26 @@ pub struct WrongOperandsError {
     pub got: usize,
 }
 
+impl WrongOperandsError {
+    /// Returns an error if the expected number of operands is given from the
+    /// actual number given.
+    pub fn test(operation: &str, expected: usize, got: usize) -> Result<(), Self> {
+        if expected != got {
+            Err(WrongOperandsError {
+                operation: operation.to_owned(),
+                expected,
+                got,
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Fails immediately with an error if the wrong number of operands was given.
 macro_rules! expect_operands {
     ($op:expr, $expected:expr, $got:expr) => {
-        if $expected != $got {
-            return Err(WrongOperandsError {
-                operation: $op.to_owned(),
-                expected: $expected,
-                got: $got
-            }.into());
-        }
+        WrongOperandsError::test($op, $expected, $got)?
     }
 }
 
@@ -510,16 +520,52 @@ impl Assembler {
     /// Performs the second pass on all instructions in the queue, emitting the
     /// resulting opcodes into the program buffer.
     fn emit(&mut self) -> Result<(), ErrorWithLine> {
-        // It would be nice to do this with an iterator instead of manually
-        // creating the `opcodes` queue, but the compiler complains if I do so,
-        // since `self.label_table` is borrowed inside the loop.
-        let mut opcodes = VecDeque::new();
+        // TODO: this code is somewhat ugly and might be able to be cleaned up
+        // a bit.
+        use self::parse::eval;
+
+        let mut opcodes = VecDeque::with_capacity(self.instructions.len());
+        // We need another queue to store any individual bytes that are
+        // generated using `DB`.
+        let mut bytes = VecDeque::new();
         for ins in self.instructions.drain(..) {
             let index = ins.index;
             let line = ins.line;
-            let instr = ins.compile(&self.label_table)?;
-            println!("Assembled {}", instr);
-            opcodes.push_back((index, line, instr));
+            match ins.operation.as_str() {
+                "DW" => {
+                    WrongOperandsError::test("DW", 1, ins.operands.len()).map_err(|e| {
+                        ErrorWithLine {
+                            line,
+                            inner: e.into(),
+                        }
+                    })?;
+                    opcodes.push_back((
+                        index,
+                        line,
+                        Opcode(eval(&ins.operands[0], &self.label_table)
+                            .map_err(|e| ErrorWithLine { line, inner: e })?),
+                    ));
+                }
+                "DB" => {
+                    WrongOperandsError::test("DW", 1, ins.operands.len()).map_err(|e| {
+                        ErrorWithLine {
+                            line,
+                            inner: e.into(),
+                        }
+                    })?;
+                    bytes.push_back((
+                        index,
+                        line,
+                        eval(&ins.operands[0], &self.label_table)
+                            .map_err(|e| ErrorWithLine { line, inner: e })?
+                            as u8,
+                    ));
+                }
+                _ => {
+                    let instr = ins.compile(&self.label_table)?;
+                    opcodes.push_back((index, line, instr.into()));
+                }
+            }
         }
 
         // Having a separate loop to process all the opcodes is necessary to
@@ -527,12 +573,22 @@ impl Assembler {
         // we're draining the instructions queue, because both operations
         // require a mutable borrow of `self`.
         for (index, line, instr) in opcodes.drain(..) {
-            self.insert_opcode(instr.into(), index)
+            self.insert_opcode(instr, index)
                 .context("resulting program is too big")
                 .map_err(|e| ErrorWithLine {
                     line,
                     inner: e.into(),
                 })?;
+        }
+        for (index, line, byte) in bytes.drain(..) {
+            let idx = index
+                .index()
+                .context("resulting program is too big")
+                .map_err(|e| ErrorWithLine {
+                    line,
+                    inner: e.into(),
+                })?;
+            self.program[idx] = byte;
         }
 
         Ok(())
@@ -746,6 +802,27 @@ mod tests {
         }
     }
 
+    /// Tests the `DB` and `DW` pseudo-operations, focusing on proper alignment
+    /// of instructions.
+    #[test]
+    fn declare_alignment() {
+        // A simple program that will check alignment details.
+        let prog = "DW #1234
+DB #56
+DW #789A
+DB #BC
+DB #DE
+EXIT";
+        let asm = Assembler::new();
+        let mut input = Cursor::new(prog);
+        let mut output = Vec::new();
+        let expected = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0x00, 0x00, 0xFD];
+
+        asm.assemble(&mut input, &mut output)
+            .expect("failed to assemble test program");
+        assert_eq!(output.as_slice(), &expected);
+    }
+
     /// Tests labelled lines.
     #[test]
     fn labelled_lines() {
@@ -758,13 +835,11 @@ lbl3:   CALL lbl3";
         let asm = Assembler::new();
         let mut input = Cursor::new(prog);
         let mut output = Vec::new();
+        let expected = [0x12, 0x02, 0x12, 0x00, 0x22, 0x04];
 
         asm.assemble(&mut input, &mut output)
             .expect("failed to assemble test program");
-        assert_eq!(output.len(), 6);
-        assert_eq!(Opcode::from_bytes(output[0], output[1]), Opcode(0x1202));
-        assert_eq!(Opcode::from_bytes(output[2], output[3]), Opcode(0x1200));
-        assert_eq!(Opcode::from_bytes(output[4], output[5]), Opcode(0x2204));
+        assert_eq!(output.as_slice(), &expected);
     }
 
     /// Tests assignment statements.
