@@ -231,15 +231,23 @@ impl FirstPassInstruction {
     ///
     /// If this fails, the returned error will have the line number which was
     /// stored in this instance.
-    pub fn compile(self, ltable: &HashMap<String, u16>) -> Result<Instruction, ErrorWithLine> {
+    pub fn compile(
+        self,
+        ltable: &HashMap<String, u16>,
+        shift_quirks: bool,
+    ) -> Result<Instruction, ErrorWithLine> {
         let line = self.line;
-        self.compile_inner(ltable)
+        self.compile_inner(ltable, shift_quirks)
             .map_err(|e| ErrorWithLine { line, inner: e })
     }
 
     /// The actual logic for `compile`, but without a line number on the error
     /// (for convenience).
-    fn compile_inner(mut self, ltable: &HashMap<String, u16>) -> Result<Instruction, Error> {
+    fn compile_inner(
+        mut self,
+        ltable: &HashMap<String, u16>,
+        shift_quirks: bool,
+    ) -> Result<Instruction, Error> {
         use Instruction::*;
         use self::parse::eval;
 
@@ -374,7 +382,8 @@ impl FirstPassInstruction {
                 Sub(ops[0].parse()?, ops[1].parse()?)
             }
             "SHR" => {
-                if ops.len() == 2 {
+                if shift_quirks || ops.len() == 2 {
+                    expect_operands!(op, 2, ops.len());
                     ShrQuirk(ops[0].parse()?, ops[1].parse()?)
                 } else {
                     expect_operands!(op, 1, ops.len());
@@ -386,7 +395,8 @@ impl FirstPassInstruction {
                 Subn(ops[0].parse()?, ops[1].parse()?)
             }
             "SHL" => {
-                if ops.len() == 2 {
+                if shift_quirks || ops.len() == 2 {
+                    expect_operands!(op, 2, ops.len());
                     ShlQuirk(ops[0].parse()?, ops[1].parse()?)
                 } else {
                     expect_operands!(op, 1, ops.len());
@@ -562,7 +572,7 @@ impl Assembler {
                     ));
                 }
                 _ => {
-                    let instr = ins.compile(&self.label_table)?;
+                    let instr = ins.compile(&self.label_table, self.shift_quirks)?;
                     opcodes.push_back((index, line, instr.into()));
                 }
             }
@@ -869,7 +879,7 @@ mod tests {
 
         let ltable = asm.label_table.clone();
         for (first_passed, (_, instr)) in asm.instructions.into_iter().zip(cases.into_iter()) {
-            let assembled = match first_passed.compile(&ltable) {
+            let assembled = match first_passed.compile(&ltable, false) {
                 Ok(a) => a,
                 Err(e) => panic!("second pass of {:?} failed: {}", instr, e),
             };
