@@ -42,12 +42,12 @@ use util;
 /// An error resulting from a nonexistent label.
 #[derive(Debug, Fail)]
 #[fail(display = "label '{}' does not exist", _0)]
-pub struct NonexistentLabelError(String);
+pub struct NonexistentLabelError(pub String);
 
 /// An error encountered while evaluating an expression.
 #[derive(Debug, Fail)]
 #[fail(display = "could not evaluate expression: {}", _0)]
-pub struct ExpressionEvalError(String);
+pub struct ExpressionEvalError(pub String);
 
 /// Returns whether the given character could be the first character in an
 /// identifier.
@@ -87,9 +87,20 @@ parser!{
     }
 }
 
+/// Parses an operand which should be only an identifier and nothing else.
+pub fn ident_only(operand: &str) -> Result<String, ExpressionEvalError> {
+    spaces()
+        .with(ident())
+        .skip(spaces())
+        .skip(eof().expected("end of operand"))
+        .parse(operand)
+        .map(|(got, _)| got)
+        .map_err(|e| ExpressionEvalError(util::format_parse_error(&e)))
+}
+
 /// Parses an operand to an instruction (or the body of an assignment).
 parser!{
-    pub fn operand[I]()(I) -> String
+    fn operand[I]()(I) -> String
     where [I: Stream<Item = char>]
     {
         many1(satisfy(|c| c != ',' && c != ';'))

@@ -38,7 +38,7 @@ mod parse;
 /// An error resulting from an attempt to give a new value to a label.
 #[derive(Debug, Fail)]
 #[fail(display = "label '{}' already has a value", _0)]
-pub struct LabelAlreadyDefinedError(String);
+pub struct LabelAlreadyDefinedError(pub String);
 
 /// An error resulting from having more than one label associated with a single
 /// statement.
@@ -49,7 +49,7 @@ pub struct TooManyLabelsError;
 /// An error produced during the first pass.
 #[derive(Debug, Fail)]
 #[fail(display = "in first pass: {}", _0)]
-pub struct FirstPassError(String);
+pub struct FirstPassError(pub String);
 
 /// An error resulting from being given the wrong number of operands for an
 /// operation.
@@ -628,8 +628,10 @@ impl Assembler {
 
         match parsed {
             Line::Assignment(lbl, expr) => {
-                let value = parse::eval(&expr, &self.label_table)?;
-                self.define_label(&lbl, value)?;
+                if self.should_process() {
+                    let value = parse::eval(&expr, &self.label_table)?;
+                    self.define_label(&lbl, value)?;
+                }
             }
             Line::Instruction(lbl, instruction) => {
                 if let Some(lbl) = lbl {
@@ -667,16 +669,81 @@ impl Assembler {
         operation: String,
         operands: Vec<String>,
     ) -> Result<(), Error> {
-        if operation.eq_ignore_ascii_case("DB") {
-            self.add_first_pass_instruction(operation, operands)?;
-            self.index += 1;
+        use self::parse;
+
+        if operation.eq_ignore_ascii_case("IFDEF") {
+            expect_operands!("IFDEF", 1, operands.len());
+
+            self.if_nest_level += 1;
+            // Parsing the identifer from the operand here was the simplest way
+            // I could think of to verify that the given operand really is an
+            // identifier.  There's an extra copy involved which isn't terribly
+            // efficient, but it probably doesn't matter.
+            let ident = parse::ident_only(&operands[0])?;
+            if self.should_process() && !self.label_table.contains_key(&ident) {
+                self.if_skip = Some((self.if_nest_level, NestingType::If));
+            }
+        } else if operation.eq_ignore_ascii_case("ELSE") {
+            expect_operands!("ELSE", 0, operands.len());
+
+            // There are a few cases to consider here, and they should mostly
+            // be self-explanatory.  The `if_skip` member contains the nesting
+            // level and the type of the thing we're skipping, making it easy
+            // to check if we should stop skipping an IF block or if we
+            // encountered some error (like a double ELSE block or an ELSE
+            // outside any conditional structure).
+            match self.if_skip {
+                Some((lvl, NestingType::If)) if lvl == self.if_nest_level => self.if_skip = None,
+                Some((lvl, NestingType::Else)) if lvl == self.if_nest_level => {
+                    return Err(FirstPassError("unexpected duplicate 'ELSE' found".into()).into())
+                }
+                None => if self.if_nest_level != 0 {
+                    self.if_skip = Some((self.if_nest_level, NestingType::Else));
+                } else {
+                    return Err(FirstPassError(
+                        "unexpected 'ELSE' found outside of conditional block".into(),
+                    ).into());
+                },
+                _ => {}
+            }
+        } else if operation.eq_ignore_ascii_case("ENDIF") {
+            expect_operands!("ENDIF", 0, operands.len());
+
+            // This is pretty similar to the `match` statement for `ELSE`, but
+            // a little simpler since we don't have to consider what type of
+            // block we might be skipping.
+            match self.if_skip {
+                Some((lvl, _)) if lvl == self.if_nest_level => self.if_skip = None,
+                None if self.if_nest_level == 0 => {
+                    return Err(FirstPassError(
+                        "unexpected 'ENDIF' found outside of conditional block".into(),
+                    ).into())
+                }
+                _ => self.if_nest_level -= 1,
+            }
+        } else if operation.eq_ignore_ascii_case("DEFINE") {
+            expect_operands!("DEFINE", 1, operands.len());
+
+            let ident = parse::ident_only(&operands[0])?;
+            if self.should_process() {
+                self.define_label(&ident, 0)?;
+            }
+        } else if operation.eq_ignore_ascii_case("DB") {
+            if self.should_process() {
+                self.add_first_pass_instruction(operation, operands)?;
+                self.index += 1;
+            }
         } else if operation.eq_ignore_ascii_case("DW") {
-            self.add_first_pass_instruction(operation, operands)?;
-            self.index += 2;
+            if self.should_process() {
+                self.add_first_pass_instruction(operation, operands)?;
+                self.index += 2;
+            }
         } else {
-            self.index.align();
-            self.add_first_pass_instruction(operation, operands)?;
-            self.index += 2;
+            if self.should_process() {
+                self.index.align();
+                self.add_first_pass_instruction(operation, operands)?;
+                self.index += 2;
+            }
         }
 
         Ok(())
@@ -706,13 +773,21 @@ impl Assembler {
 
         Ok(())
     }
+
+    /// Returns whether the assembler should be processing instructions.
+    ///
+    /// This returns `false` if, for example, we're inside a conditional
+    /// assembly block whose condition was not satisfied.
+    fn should_process(&self) -> bool {
+        self.if_skip.is_none()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
 
-    use {Address, AlignedAddress, Assembler, Opcode};
+    use {Address, AlignedAddress, Assembler};
 
     /// Tests basic instruction assembly.
     ///
@@ -864,5 +939,39 @@ lbl3:   CALL lbl3";
             };
             assert_eq!(assigned, val, "incorrect processing of {:?}", input);
         }
+    }
+
+    /// Tests conditional assembly.
+    #[test]
+    fn conditional() {
+        // A simple test program.
+        let prog = "DEFINE COND
+IFDEF COND
+IFDEF NOTHING
+DB 0
+DEFINE BAD
+ELSE
+DB 1
+ENDIF
+ELSE
+IFDEF NOTHING
+DB 2
+BAD2 = 1
+ELSE
+DB 3
+ENDIF
+ENDIF
+
+IFDEF BAD
+DB 4 + BAD2
+ENDIF";
+        let asm = Assembler::new();
+        let mut input = Cursor::new(prog);
+        let mut output = Vec::new();
+        let expected = [1];
+
+        asm.assemble(&mut input, &mut output)
+            .expect("failed to assemble test program");
+        assert_eq!(output.as_slice(), &expected);
     }
 }
