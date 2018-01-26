@@ -89,6 +89,11 @@ macro_rules! expect_operands {
 #[fail(display = "unknown operation '{}'", _0)]
 pub struct UnknownOperationError(String);
 
+/// An error resulting from an unclosed conditional block.
+#[derive(Debug, Fail)]
+#[fail(display = "unclosed conditional block; expected 'ENDIF'")]
+pub struct UnclosedConditionalError;
+
 /// An error with an associated line number.
 #[derive(Debug)]
 pub struct ErrorWithLine {
@@ -523,6 +528,9 @@ impl Assembler {
                 lbl
             );
         }
+        if self.if_nest_level != 0 {
+            return Err(UnclosedConditionalError.into());
+        }
 
         Ok(())
     }
@@ -693,6 +701,14 @@ impl Assembler {
             if self.should_process() && !self.label_table.contains_key(&ident) {
                 self.if_skip = Some((self.if_nest_level, NestingType::If));
             }
+        } else if operation.eq_ignore_ascii_case("IFNDEF") {
+            expect_operands!("IFNDEF", 1, operands.len());
+
+            self.if_nest_level += 1;
+            let ident = parse::ident_only(&operands[0])?;
+            if self.should_process() && self.label_table.contains_key(&ident) {
+                self.if_skip = Some((self.if_nest_level, NestingType::If));
+            }
         } else if operation.eq_ignore_ascii_case("ELSE") {
             expect_operands!("ELSE", 0, operands.len());
 
@@ -729,8 +745,9 @@ impl Assembler {
                         "unexpected 'ENDIF' found outside of conditional block".into(),
                     ).into())
                 }
-                _ => self.if_nest_level -= 1,
+                _ => {}
             }
+            self.if_nest_level -= 1;
         } else if operation.eq_ignore_ascii_case("DEFINE") {
             expect_operands!("DEFINE", 1, operands.len());
 
@@ -974,14 +991,55 @@ ENDIF
 
 IFDEF BAD
 DB 4 + BAD2
+ENDIF
+IFNDEF BAD
+DB 5
 ENDIF";
         let asm = Assembler::new();
         let mut input = Cursor::new(prog);
         let mut output = Vec::new();
-        let expected = [1];
+        let expected = [1, 5];
 
         asm.assemble(&mut input, &mut output)
             .expect("failed to assemble test program");
         assert_eq!(output.as_slice(), &expected);
+    }
+
+    /// Tests expected conditional assembly failure.
+    #[test]
+    fn conditional_failure() {
+        // Some test programs, each of which should fail assembly.
+        let progs = [
+            "ELSE",
+            "IFDEF",
+            "ENDIF",
+            "IFDEF UNDEFINED",
+            "IFNDEF A
+DW 0
+ELSE
+DW 1
+ELSE
+DW 2
+ENDIF",
+            "IFDEF A
+IFDEF B
+IFDEF C
+ELSE
+IFDEF D
+ENDIF
+ENDIF
+ENDIF",
+        ];
+
+        for prog in &progs {
+            let asm = Assembler::new();
+            let mut input = Cursor::new(prog);
+            let mut output = Vec::new();
+            assert!(
+                asm.assemble(&mut input, &mut output).is_err(),
+                "assembly of program {:?} unexpectedly succeeded",
+                prog
+            );
+        }
     }
 }
