@@ -26,6 +26,8 @@ extern crate failure;
 extern crate failure_derive;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate maplit;
 extern crate num;
 extern crate rand;
 extern crate time;

@@ -26,7 +26,8 @@
 
 use std::collections::HashMap;
 
-use combine::{between, eof, many, one_of, optional, satisfy, sep_by, token, try, chainl1, many1};
+use combine::{any, between, eof, many, one_of, optional, satisfy, sep_by, token, try, chainl1,
+              many1};
 use combine::char::{digit, hex_digit, spaces};
 use combine::{Parser, Stream};
 // For some reason, the compiler complains about `Fail` being unused even
@@ -87,9 +88,13 @@ parser!{
             .map(|s: String| s.trim().to_owned());
         let operands = sep_by(operand, token(',').skip(spaces())).skip(spaces());
         let instruction = operation.and(operands);
+        // A comment will just consume everything else on the line.
+        let comment = token(';').and(many::<Vec<_>, _>(any()));
 
         spaces().with(optional(try(label)))
             .and(optional(try(instruction)))
+            .skip(optional(comment))
+            .skip(eof())
     }
 }
 
@@ -151,7 +156,7 @@ parser!{
     {
         let unary = one_of("-~".chars())
             .skip(spaces())
-            .and(parens(ltable))
+            .and(factor(ltable))
             .map(|(op, num)| match op {
                 '-' => num.wrapping_neg(),
                 '~' => !num,
@@ -275,4 +280,156 @@ pub fn eval(expression: &str, ltable: &HashMap<String, u16>) -> Result<u16, Erro
         .parse(expression)
         .map(|x| x.0)
         .map_err(|e| ExpressionEvalError(util::format_parse_error(&e)).into())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use combine::Parser;
+
+    use super::eval;
+    use super::line;
+    use util::format_parse_error;
+
+    /// Tests line parsing.
+    #[test]
+    fn parse_line() {
+        let cases = [
+            (
+                "label_only:\t   \t ; a comment",
+                (Some("label_only".into()), None),
+            ),
+            (
+                "operation op1 , op2, op3 ; trick, ",
+                (
+                    None,
+                    Some((
+                        "operation".into(),
+                        vec!["op1".into(), "op2".into(), "op3".into()],
+                    )),
+                ),
+            ),
+            (
+                "label:  AND  op,op + 2   ,    op3  \t\t",
+                (
+                    Some("label".into()),
+                    Some((
+                        "AND".into(),
+                        vec!["op".into(), "op + 2".into(), "op3".into()],
+                    )),
+                ),
+            ),
+            ("     ;  nothing to see here!", (None, None)),
+            ("      ", (None, None)),
+        ];
+
+        for &(input, ref expected) in cases.iter() {
+            let parsed = match line().parse(input) {
+                Ok(p) => p.0,
+                Err(e) => panic!(
+                    "failed to parse line {:?}: {}",
+                    input,
+                    format_parse_error(&e)
+                ),
+            };
+            assert_eq!(&parsed, expected);
+        }
+    }
+
+    /// Tests parse failures on bad lines.
+    #[test]
+    fn fail_line() {
+        let cases = [
+            "bad:  000 ; not an operation",
+            "ADD 2,",
+            ",",
+            ":",
+            "label: operation op,",
+        ];
+
+        for &case in cases.iter() {
+            assert!(
+                line().parse(case).is_err(),
+                "successfully parsed {:?}",
+                case
+            );
+        }
+    }
+
+    /// Tests expression evaluation.
+    #[test]
+    fn expr_eval() {
+        let ltable = hashmap![
+            "label1".into() => 10,
+            "TEST_ident".into() => 50,
+            "weird00D".into() => 100,
+        ];
+
+        let cases = [
+            ("1 + 1", 1 + 1),
+            ("4 - 3", 4 - 3),
+            ("#20 * $101", 0x20 * 0b101),
+            ("78 / 5", 78 / 5),
+            ("24 % 7", 24 % 7),
+            ("8 < 2", 8 << 2),
+            ("5 > 2", 5 >> 2),
+            ("$10101 & $11001", 0b10101 & 0b11001),
+            ("$11001 ^ $11100", 0b11001 ^ 0b11100),
+            ("$10001 | $01001", 0b10001 | 0b01001),
+            ("2 + 6 * 5", 2 + 6 * 5),
+            ("2 * 5 + 6", 2 * 5 + 6),
+            ("(2 + 6) * 5", (2 + 6) * 5),
+            ("-1", 1u16.wrapping_neg()),
+            ("-(1 + 2)", (1u16 + 2).wrapping_neg()),
+            ("~$1100110", !0b1100110),
+            ("1 < 2 + 2", 1 << 2 + 2),
+            ("1 | 1 ^ 1 & 1", 1 | 1 ^ 1 & 1),
+            ("((((6 + 6))) + ((2)))", 6 + 6 + 2),
+            ("~~--1", 1),
+            ("1+1+1", 1 + 1 + 1),
+            ("2\t-1\t+1            ", 2 - 1 + 1),
+            ("label1 + TEST_ident+weird00D", 10 + 50 + 100),
+            ("-label1", 10u16.wrapping_neg()),
+            ("~weird00D", !100),
+        ];
+
+        for &(ref expression, result) in cases.iter() {
+            let evaluated = match eval(expression, &ltable) {
+                Ok(n) => n,
+                Err(e) => panic!("could not evaluate {:?}: {}", expression, e),
+            };
+            assert_eq!(evaluated, result, "improper evaluation of {:?}", expression);
+        }
+    }
+
+    /// Tests failure on malformed expression evaluation.
+    ///
+    /// All of the cases in this test should *fail* when they are evaluated,
+    /// since they are malformed.  We don't use the `#[should_panic]` attribute
+    /// since we want to have multiple cases and not just check the first one.
+    #[test]
+    fn expr_fail() {
+        let ltable = HashMap::new();
+        let cases = [
+            "1 +",
+            "2 + -",
+            "5 + + 4",
+            "&",
+            "",
+            "(((4))",
+            "5)",
+            "4 << 2",
+            "undefined + 2",
+            "also_undefined",
+        ];
+
+        for case in cases.iter() {
+            assert!(
+                eval(case, &ltable).is_err(),
+                "evaluation of {:?} succeeded",
+                case
+            );
+        }
+    }
 }
