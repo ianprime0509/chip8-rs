@@ -497,6 +497,13 @@ impl Assembler {
         let mut output = BufWriter::new(output);
         output.write_all(&self.program[..last])?;
 
+        if let Some(lbl) = self.label {
+            warn!(
+                "found label '{}' at end of file with nothing to refer to",
+                lbl
+            );
+        }
+
         Ok(())
     }
 
@@ -637,7 +644,9 @@ impl Assembler {
 
 #[cfg(test)]
 mod tests {
-    use {Address, AlignedAddress, Assembler};
+    use std::io::Cursor;
+
+    use {Address, AlignedAddress, Assembler, Opcode};
 
     /// Tests basic instruction assembly.
     ///
@@ -725,5 +734,26 @@ mod tests {
             };
             assert_eq!(assembled, instr);
         }
+    }
+
+    /// Tests labelled lines.
+    #[test]
+    fn labelled_lines() {
+        // This is just a simple program that tests the basic possible label
+        // configurations.
+        let prog = "lbl: JP lbl2
+lbl2:
+        JP lbl
+lbl3:   CALL lbl3";
+        let asm = Assembler::new();
+        let mut input = Cursor::new(prog);
+        let mut output = Vec::new();
+
+        asm.assemble(&mut input, &mut output)
+            .expect("failed to assemble test program");
+        assert_eq!(output.len(), 6);
+        assert_eq!(Opcode::from_bytes(output[0], output[1]), Opcode(0x1202));
+        assert_eq!(Opcode::from_bytes(output[2], output[3]), Opcode(0x1200));
+        assert_eq!(Opcode::from_bytes(output[4], output[5]), Opcode(0x2204));
     }
 }
