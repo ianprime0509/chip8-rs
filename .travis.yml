@@ -4,10 +4,14 @@ rust:
   - stable
   - beta
   - nightly
+
 matrix:
   allow_failures:
     - rust: nightly
+
 addons:
   apt:
     packages:
       - libsdl2-dev
+
+cache: cargo
