@@ -515,17 +515,17 @@ impl Interpreter {
         let regno = reg as usize;
         let start = self.i().addr();
 
-        if start + regno > MEM_SIZE {
-            Err(AddressOutOfBoundsError(start + regno - 1))?
+        if start + regno + 1 > MEM_SIZE {
+            Err(AddressOutOfBoundsError(start + regno))?
         } else {
-            for (dest, src) in self.mem[start..start + regno]
+            for (dest, src) in self.mem[start..start + regno + 1]
                 .iter_mut()
-                .zip(self.regs[0..regno].iter_mut())
+                .zip(self.regs[0..regno + 1].iter_mut())
             {
                 *dest = src.0;
             }
             if self.load_quirks {
-                self.set_i(Address::from_usize(start + regno).unwrap());
+                self.set_i(Address::from_usize(start + regno + 1).unwrap());
             }
 
             Ok(())
@@ -537,17 +537,17 @@ impl Interpreter {
         let regno = reg as usize;
         let start = self.i().addr();
 
-        if start + regno > MEM_SIZE {
-            Err(AddressOutOfBoundsError(start + regno - 1))?
+        if start + regno + 1 > MEM_SIZE {
+            Err(AddressOutOfBoundsError(start + regno))?
         } else {
-            for (dest, src) in self.regs[0..regno]
+            for (dest, src) in self.regs[0..regno + 1]
                 .iter_mut()
-                .zip(self.mem[start..start + regno].iter_mut())
+                .zip(self.mem[start..start + regno + 1].iter_mut())
             {
                 *dest = Wrapping(*src);
             }
             if self.load_quirks {
-                self.set_i(Address::from_usize(start + regno).unwrap());
+                self.set_i(Address::from_usize(start + regno + 1).unwrap());
             }
 
             Ok(())
@@ -763,5 +763,33 @@ mod tests {
             assert_eq!(interpreter.register(vx), subn, "case {:?}", case);
             assert_eq!(interpreter.register(VF), !borrown as u8, "case {:?}", case);
         }
+    }
+
+    /// Tests the `LD [I], Vx` and `LD Vx, [I]` operations.
+    #[test]
+    fn instruction_ld_deref_i() {
+        use num::FromPrimitive;
+
+        use Address;
+        use Register;
+        use Register::*;
+
+        let mut interpreter = Interpreter::with_options(Options::testing());
+        let buffer = b"HELLO";
+        interpreter.mem_mut()[0x500..0x500 + buffer.len()].copy_from_slice(buffer);
+        interpreter
+            .execute(Instruction::LdI(Address::from_usize(0x500).unwrap()))
+            .unwrap();
+        interpreter.execute(Instruction::LdRegDerefI(V4)).unwrap();
+        for (i, &b) in buffer.iter().enumerate() {
+            let reg = Register::from_usize(i).unwrap();
+            assert_eq!(interpreter.register(reg), b, "bad value in {}", reg);
+        }
+
+        for b in &mut interpreter.mem_mut()[0x500..0x500 + buffer.len()] {
+            *b = 0;
+        }
+        interpreter.execute(Instruction::LdDerefIReg(V4)).unwrap();
+        assert_eq!(&interpreter.mem()[0x500..0x500 + buffer.len()], buffer);
     }
 }
