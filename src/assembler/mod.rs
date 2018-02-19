@@ -157,8 +157,8 @@ pub struct ReservedAddressError(Address);
 /// This type is intended to make implementing the assembler a little easier by
 /// not requiring constant bounds checks on the program index and making
 /// conversions to/from `Address`es easier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ProgramIndex(usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProgramIndex(usize);
 
 impl ProgramIndex {
     /// Returns a new `ProgramIndex` wrapping the given index.
@@ -172,6 +172,15 @@ impl ProgramIndex {
     /// though it would never be accessed at that location).
     pub fn new(index: usize) -> Self {
         ProgramIndex(index)
+    }
+
+    /// Returns the `ProgramIndex` corresponding to the given `Address`.
+    pub fn from_address(addr: Address) -> Result<Self, ReservedAddressError> {
+        if addr.addr() < PROG_START {
+            Err(ReservedAddressError(addr))
+        } else {
+            Ok(ProgramIndex(addr.addr() - PROG_START))
+        }
     }
 
     /// Returns the `Address` corresponding to this index.
@@ -502,16 +511,8 @@ impl Assembler {
         }
 
         self.emit()?;
-        // We only want to output the data in the program buffer that actually
-        // matters, and not the empty data at the end.  Thus, we only output up
-        // through the last non-zero byte in the program buffer.
-        let last = self.program
-            .iter()
-            .rposition(|&b| b != 0)
-            .map(|pos| pos + 1)
-            .unwrap_or(self.program.len());
         let mut output = BufWriter::new(output);
-        output.write_all(&self.program[..last])?;
+        output.write_all(&self.program[..self.index.0])?;
 
         if let Some(lbl) = self.label {
             warn!(

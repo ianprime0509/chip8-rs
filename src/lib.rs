@@ -31,6 +31,7 @@ pub const PROG_START: usize = 0x200;
 pub const PROG_SIZE: usize = MEM_SIZE - PROG_START;
 
 pub mod assembler;
+pub mod disassembler;
 pub mod display;
 pub mod input;
 pub mod instruction;

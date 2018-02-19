@@ -261,7 +261,7 @@ impl From<Instruction> for Opcode {
 /// let aligned = addr.aligned().unwrap();
 /// assert_eq!(aligned.addr(), 0x204);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Address(usize);
 
 impl Address {
@@ -562,6 +562,19 @@ impl Instruction {
             },
             _ => unreachable!("4-bit quantity didn't match 0-15"),
         })
+    }
+
+    /// Returns the address referenced by the instruction, if any.
+    pub fn addr(&self) -> Option<Address> {
+        use self::Instruction::*;
+
+        match *self {
+            Jp(addr) => Some(*addr),
+            Call(addr) => Some(*addr),
+            LdI(addr) => Some(addr),
+            JpV0(addr) => Some(addr),
+            _ => None,
+        }
     }
 }
 
