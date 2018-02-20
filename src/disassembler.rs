@@ -11,7 +11,7 @@
 use std::collections::HashSet;
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::default::Default;
-use std::io::Read;
+use std::io::{BufWriter, Read, Write};
 
 use failure::{Error, ResultExt};
 
@@ -99,6 +99,12 @@ impl PartialOrd for ControlPoint {
 }
 
 /// Contains the state of the disassembler.
+///
+/// Once the disassembler is initialized with some program data, it can be used
+/// repeatedly to get disassembly information from it.  This is intended to
+/// support things like debuggers, which might want access to the disassembly
+/// information to display sections of the disassembled code or to set
+/// breakpoints based on disassembled label names.
 pub struct Disassembler {
     /// The program being disassembled.
     prog: Vec<u8>,
@@ -253,19 +259,95 @@ impl Disassembler {
             shift_quirks: options.shift_quirks,
         })
     }
+
+    /// Dumps the entire disassembled content of the program to the given
+    /// output.
+    pub fn dump<W: Write>(&self, output: &mut W) -> Result<(), Error> {
+        let mut output = BufWriter::new(output);
+
+        for (n, chunk) in self.prog.chunks(2).enumerate() {
+            let index = ProgramIndex::new(2 * n);
+
+            if chunk.len() == 1 {
+                write!(output, "DB #{:02X}\n", chunk[0])?;
+                continue;
+            }
+
+            let opcode = Opcode::from_bytes(chunk[0], chunk[1]);
+            // Make sure we precede the instruction with a label if the current
+            // instruction is referenced somewhere in the code.
+            if let Ok(addr) = index.address() {
+                if self.labels.contains(&addr) {
+                    write!(output, "L{:03X}: ", index.index()?)?;
+                }
+            }
+
+            if self.is_reachable(index) {
+                let instr = Instruction::from_opcode(opcode, self.shift_quirks)?;
+                // We want to have a nice label operand for addresses that we
+                // already know are referenced in the code.  The format for
+                // these labels is currently `Lnnn`, where `nnn` is the program
+                // index in hexadecimal.
+                if let Some(addr) = instr.addr() {
+                    if self.labels.contains(&addr) {
+                        write!(
+                            output,
+                            "{}\n",
+                            instr.to_string_with_address_label(Some(&format!(
+                                "L{:03X}",
+                                ProgramIndex::from_address(addr)?.index()?
+                            )))
+                        )?;
+                        continue;
+                    }
+                }
+                write!(output, "{}\n", instr)?;
+            } else {
+                write!(output, "DW {}\n", opcode)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Returns whether the given program index is reachable (based on
+    /// control-flow analysis).
+    pub fn is_reachable(&self, index: ProgramIndex) -> bool {
+        use self::ControlPoint::*;
+
+        match self.control_points.binary_search(&Ret(index)) {
+            Ok(_) => true,
+            Err(pos) => if pos == self.control_points.len() {
+                // We are guaranteed to have at least one control point (the
+                // initial entry).
+                match *self.control_points.last().unwrap() {
+                    Ret(_) => true,
+                    Jp(_) => false,
+                }
+            } else {
+                // We are guaranteed to have pos > 0, since the first control
+                // point is Ret(0) (the minimum value).
+                assert!(pos > 0);
+                match (self.control_points[pos - 1], self.control_points[pos]) {
+                    (Jp(_), Ret(_)) => false,
+                    _ => true,
+                }
+            },
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
 
+    use super::Disassembler;
+    use super::ControlPoint::*;
+    use assembler::{Assembler, ProgramIndex};
+
     /// Tests whether control points are identified correctly.
     #[test]
     fn control_points() {
-        use super::Disassembler;
-        use super::ControlPoint::*;
-        use assembler::{Assembler, ProgramIndex};
-
         // A list of cases, each one containing a program to be assembled and
         // the corresponding control points.
         let cases = [
@@ -337,5 +419,54 @@ twist2: JP twist",
                 n + 1
             );
         }
+    }
+
+    /// Tests whether the `dump` method behaves as expected by assembling and
+    /// then disassembling a sample program.
+    #[test]
+    fn dump() {
+        let prog = "ADD V0, V1
+LD I, #AB0
+JP L00A
+DW #1234
+L008: DW #2F00
+L00A: LD I, L008
+L00C: JP L00C
+DB #42
+";
+        let asm = Assembler::new();
+        let mut input = Cursor::new(prog);
+        let mut output = Vec::new();
+        asm.assemble(&mut input, &mut output).unwrap();
+        let mut output = Cursor::new(output);
+        let disasm = Disassembler::new(&mut output).unwrap();
+
+        let mut output = Vec::new();
+        disasm.dump(&mut output).unwrap();
+        assert_eq!(String::from_utf8(output).unwrap(), prog);
+    }
+
+    /// Tests whether the `is_reachable` method behaves as expected.
+    #[test]
+    fn is_reachable() {
+        let prog = "JP start
+DW #1234
+start: ADD V0, V1
+SKP V1
+JP start
+end: JP end";
+        let asm = Assembler::new();
+        let mut input = Cursor::new(prog);
+        let mut output = Vec::new();
+        asm.assemble(&mut input, &mut output).unwrap();
+        let mut output = Cursor::new(output);
+        let disasm = Disassembler::new(&mut output).unwrap();
+
+        assert!(disasm.is_reachable(ProgramIndex::new(0)));
+        assert!(!disasm.is_reachable(ProgramIndex::new(2)));
+        assert!(disasm.is_reachable(ProgramIndex::new(4)));
+        assert!(disasm.is_reachable(ProgramIndex::new(6)));
+        assert!(disasm.is_reachable(ProgramIndex::new(8)));
+        assert!(disasm.is_reachable(ProgramIndex::new(10)));
     }
 }

@@ -576,6 +576,33 @@ impl Instruction {
             _ => None,
         }
     }
+
+    /// Formats the instruction into a string, using the given label name in
+    /// place of any address operand that may be in the instruction.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chip8::{AlignedAddress, Instruction};
+    ///
+    /// let instr = Instruction::Call(AlignedAddress::from_usize(0x200).unwrap());
+    /// assert_eq!(instr.to_string_with_address_label(Some("label")), "CALL label");
+    /// ```
+    pub fn to_string_with_address_label(&self, label: Option<&str>) -> String {
+        use self::Instruction::*;
+
+        if let Some(label) = label {
+            match *self {
+                Jp(_) => format!("JP {}", label),
+                Call(_) => format!("CALL {}", label),
+                LdI(_) => format!("LD I, {}", label),
+                JpV0(_) => format!("JP V0, {}", label),
+                _ => self.to_string(),
+            }
+        } else {
+            self.to_string()
+        }
+    }
 }
 
 impl fmt::Display for Instruction {
