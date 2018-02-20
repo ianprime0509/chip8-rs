@@ -1,5 +1,0 @@
-#+TITLE: Chip-8
-
-I'm rewriting [[https://gitlab.com/ianprime0509/chip8-c][the C version of this project]] in Rust, and it's currently very
-much a work in progress.  Once it's done, though, it should end up being better
-than the original while remaining compatible with it.
