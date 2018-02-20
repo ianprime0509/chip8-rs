@@ -17,6 +17,12 @@ from the C version into the `info` directory, which you can build using
 `texi2any --info chip8.texi` (you will also get some warnings because I haven't
 set up a proper build system for it).
 
+## Usage
+
+There are some games in the `games` directory that you can use with the
+emulator.  See the `README.md` file in that directory for more information
+about them.
+
 ## License
 
 This is free software, distributed under the [MIT
