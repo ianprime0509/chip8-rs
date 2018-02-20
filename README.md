@@ -1,5 +1,7 @@
 # Chip-8
 
+[![Travis](https://img.shields.io/travis/ianprime0509/chip8.svg)]()
+
 This is a [Chip-8](https://en.wikipedia.org/wiki/CHIP-8) emulator, assembler
 and disassembler, written in Rust.  It began as a port of my original [C
 version](https://github.com/ianprime0509/chip8-c), and I've fixed at least a
