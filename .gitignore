@@ -1,4 +1,7 @@
-
 /target/
 **/*.rs.bk
 Cargo.lock
+
+manual_html/
+**/*.info
+info/version.texi

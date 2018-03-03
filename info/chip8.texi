@@ -1,5 +1,5 @@
 \input texinfo
-@c @include version.texi
+@include version.texi
 @setfilename chip8.info
 @settitle Chip-8 @value{VERSION}
 @documentencoding UTF-8
