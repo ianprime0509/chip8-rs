@@ -11,11 +11,12 @@ assembling/disassembling them).
 
 ## Building
 
-You can run `cargo build --release` to build the project; it will produce the
-binaries `chip8`, `chip8asm` and `chip8disasm`.  I also transplanted the manual
-from the C version into the `info` directory, which you can build using
-`texi2any --info chip8.texi` (you will also get some warnings because I haven't
-set up a proper build system for it).
+You can run `cargo build --release` to build the programs; it will produce the
+binaries `chip8`, `chip8asm` and `chip8disasm`.
+
+To build everything, including the manual, you will need Texinfo installed on
+your system as well as some `make` utility (I've only tested it with GNU Make).
+Then, you can run the `make` command to build the programs and the manual.
 
 ## Usage
 
