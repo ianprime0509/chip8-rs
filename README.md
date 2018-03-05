@@ -3,11 +3,11 @@
 [![Travis](https://img.shields.io/travis/ianprime0509/chip8.svg)]()
 
 This is a [Chip-8](https://en.wikipedia.org/wiki/CHIP-8) emulator, assembler
-and disassembler, written in Rust.  It began as a port of my original [C
-version](https://github.com/ianprime0509/chip8-c), and I've fixed at least a
-few bugs that were present in the original.  It is by no means finished, but it
-should be at least usable for playing games (as well as
-assembling/disassembling them).
+and disassembler, written in Rust.  It is a rewrite of my original [C
+version](https://github.com/ianprime0509/chip8) since I wanted to see how it
+would look in Rust.  Ideally, it should work as well as the original, but might
+be lacking some features (since I expect to work more frequently on the
+original version).
 
 ## Building
 
